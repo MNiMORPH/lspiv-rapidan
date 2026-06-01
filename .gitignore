@@ -205,3 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project data and outputs (large files; not tracked)
+data/raw/
+data/stabilized/
+results/
+
+# GCP files and camera configs ARE tracked (see data/gcps/, data/camera_configs/)
