@@ -16,6 +16,7 @@ nframes = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 fps = cap.get(cv2.CAP_PROP_FPS)
 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+cap.release()
 
 # Define Ground Control Points (GCPs) if available.
 gcps = {
