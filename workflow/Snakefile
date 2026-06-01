@@ -1,0 +1,72 @@
+configfile: "../config/config.yaml"
+
+RAW_DIR      = config["raw_dir"]
+STAB_DIR     = config["stabilized_dir"]
+GCPS_DIR     = config["gcps_dir"]
+CAM_DIR      = config["camera_config_dir"]
+RESULTS_DIR  = config["results_dir"]
+EXT          = config["video_extension"]
+
+SAMPLES, = glob_wildcards(f"{RAW_DIR}/{{sample}}.{EXT}")
+
+
+rule all:
+    input:
+        expand(f"{RESULTS_DIR}/{{sample}}/PIVquiverFrame.png", sample=SAMPLES)
+
+
+rule stabilize:
+    input:
+        video=f"{RAW_DIR}/{{sample}}.{EXT}"
+    output:
+        video=f"{STAB_DIR}/{{sample}}.mp4"
+    shell:
+        "lspiv-stabilize --input {input.video} --output {output.video}"
+
+
+# ── Georeferencing ────────────────────────────────────────────────────────────
+# This rule is a stub. The collaborator should implement georeference.py
+# (or equivalent) that takes a reference frame extracted from the stabilized
+# video and a GCP file, and writes a pyorc-compatible camera_config.json.
+#
+# GCP file format (data/gcps/{sample}.json):
+#   {
+#     "src": [[col, row], ...],          # pixel coordinates
+#     "dst": [[x, y], ...],              # real-world coordinates (CRS units)
+#     "h_ref": 0.0,
+#     "z_0": 0.0
+#   }
+rule georeference:
+    input:
+        video=f"{STAB_DIR}/{{sample}}.mp4",
+        gcps=f"{GCPS_DIR}/{{sample}}.json"
+    output:
+        camera_config=f"{CAM_DIR}/{{sample}}.json"
+    shell:
+        "lspiv-georeference --video {input.video} --gcps {input.gcps} --output {output.camera_config}"
+
+
+rule piv:
+    input:
+        video=f"{STAB_DIR}/{{sample}}.mp4",
+        camera_config=f"{CAM_DIR}/{{sample}}.json"
+    output:
+        frame=f"{RESULTS_DIR}/{{sample}}/Frame.png",
+        piv_figure=f"{RESULTS_DIR}/{{sample}}/PIVquiverFrame.png"
+    params:
+        start_frame = config["piv"]["start_frame"],
+        end_frame   = config["piv"].get("end_frame") or "",
+        h_a         = config["piv"]["h_a"],
+        engine      = config["piv"]["engine"],
+        output_dir  = f"{RESULTS_DIR}/{{sample}}"
+    shell:
+        """
+        lspiv-piv \
+            --video {input.video} \
+            --camera-config {input.camera_config} \
+            --output-dir {params.output_dir} \
+            --start-frame {params.start_frame} \
+            --h-a {params.h_a} \
+            --piv-engine {params.engine} \
+            $([ -n "{params.end_frame}" ] && echo "--end-frame {params.end_frame}")
+        """
