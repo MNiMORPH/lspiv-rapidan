@@ -11,13 +11,15 @@ dependencies = [
     "numpy<2",
     "opencv-python",
     "matplotlib",
+    "rasterio",
     "stabilo",
     "pyopenrivercam",
 ]
 
 [project.scripts]
-lspiv-stabilize = "lspiv.stabilize:main"
-lspiv-piv       = "lspiv.piv:main"
+lspiv-stabilize    = "lspiv.stabilize:main"
+lspiv-georeference = "lspiv.georeference:main"
+lspiv-piv          = "lspiv.piv:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

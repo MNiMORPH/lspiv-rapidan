@@ -9,6 +9,7 @@ dependencies:
   - ipython
   - cartopy
   - numpy=1          # numba (used by pyorc) requires numpy <2
+  - rasterio         # geospatial raster I/O and coordinate transforms
   - pip:
     - stabilo
     - pyopenrivercam  # install from PyPI; for dev use the GitHub clone
