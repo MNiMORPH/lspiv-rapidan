@@ -12,7 +12,7 @@ video_extension: MP4   # file extension for raw videos (case-sensitive on Linux)
 orthophoto: data/orthophoto.tif
 
 georeference:
-  frame_number:     0         # which video frame to use for SIFT matching
+  # frame_number: null        # override to use a specific frame; default is middle of clip
   n_gcps:           20        # number of spatially distributed GCPs to extract
   max_ortho_pixels: 4000000   # downsample orthophoto to ~this many pixels for SIFT
 

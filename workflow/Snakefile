@@ -31,7 +31,9 @@ rule georeference:
     output:
         camera_config=CAM_DIR + "/{sample}.json"
     params:
-        frame            = config["georeference"]["frame_number"],
+        frame_arg        = ("--frame " + str(config["georeference"]["frame_number"])
+                            if config["georeference"].get("frame_number") is not None
+                            else ""),
         n_gcps           = config["georeference"]["n_gcps"],
         max_ortho_pixels = config["georeference"]["max_ortho_pixels"],
         debug_image      = RESULTS + "/{sample}/georeference_debug.png",
@@ -41,7 +43,7 @@ rule georeference:
             --video            {input.video} \
             --orthophoto       {input.orthophoto} \
             --output           {output.camera_config} \
-            --frame            {params.frame} \
+            {params.frame_arg} \
             --n-gcps           {params.n_gcps} \
             --max-ortho-pixels {params.max_ortho_pixels} \
             --debug-image      {params.debug_image}
