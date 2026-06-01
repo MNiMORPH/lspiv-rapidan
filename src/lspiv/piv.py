@@ -54,6 +54,7 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     if camera_config_path is not None:
         with open(camera_config_path) as f:
             camera_config = pyorc.CameraConfig(**json.load(f))
+        camera_config.set_bbox_from_corners([[0, height], [width, height], [width, 0], [0, 0]])
     else:
         print("WARNING: no camera config provided; using placeholder pixel-scaled GCPs.")
         camera_config = _placeholder_camera_config(width, height)
