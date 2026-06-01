@@ -1,6 +1,7 @@
 import pyorc
 import numpy as np
 import cv2
+import matplotlib.pyplot as plt
 
 # 1. Define paths and video details
 video_path = "output_stabilized_video.mp4"
