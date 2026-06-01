@@ -1,6 +1,5 @@
 import pyorc
 import numpy as np
-import os
 import cv2
 
 # 1. Define paths and video details
