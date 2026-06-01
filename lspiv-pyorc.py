@@ -98,33 +98,13 @@ piv = da_norm_proj.frames.get_piv(engine="numba")
 
 # 6. Plot
 
-"""
 # extract frames again, but now with rgb
 da_rgb = video.get_frames(method="rgb")
 # project the rgb frames, same as before
 da_rgb_proj = da_rgb.frames.project()
 
-# plot the first frame in geographical mode
-p = da_rgb_proj[0].frames.plot(mode="geographical")
-
-ds = piv # alias
-ds_mean = ds.mean(dim="time", keep_attrs=True)
-
-# first a pcolormesh
-ds_mean.velocimetry.plot.pcolormesh(
-    ax=p.axes,
-    alpha=0.3,
-    cmap="rainbow",
-    add_colorbar=True,
-    vmax=0.6
-)
-
-ds_mean.velocimetry.plot(
-    ax=p.axes,
-    color="w",
-    alpha=0.5,
-)
-"""
+# time-average the velocimetry
+ds_mean = piv.mean(dim="time", keep_attrs=True)
 
 plt.figure()
 p = da_rgb_proj[0].frames.plot()
