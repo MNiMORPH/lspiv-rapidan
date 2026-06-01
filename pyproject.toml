@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lspiv"
+version = "0.1.0"
+description = "Large-scale particle image velocimetry from drone video"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy<2",
+    "opencv-python",
+    "matplotlib",
+    "stabilo",
+    "pyopenrivercam",
+]
+
+[project.scripts]
+lspiv-stabilize = "lspiv.stabilize:main"
+lspiv-piv       = "lspiv.piv:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
