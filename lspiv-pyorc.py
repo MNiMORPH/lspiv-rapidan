@@ -74,6 +74,7 @@ video = pyorc.Video(
 # We don't know the water level, and it varies
 #     h_a=1.5           # Actual water level during video capture (in meters) -- unknown
 
+
 # 4. Get frames and normalize them to enhance contrast: project them
 da = video.get_frames()
 da_norm = da.frames.normalize()
@@ -88,14 +89,13 @@ da_norm_proj[0].frames.plot(cmap="gray")
 # 5. Estimate surface velocities
 piv = da_norm_proj.frames.get_piv(engine="numba")
 
-
 #piv_px_per_frame = frames.get_piv(
 #    engine="numba", window_size=64,
 #    ensemble_corr=True, s2n_min=3, corr_min=0.2
 #)
 
 
-# 5.5 plot
+# 6. Plot
 
 """
 # extract frames again, but now with rgb
@@ -135,28 +135,4 @@ ds_mean.velocimetry.plot( ax=p.axes )
 plt.savefig('PIVquiverFrame.png')
 
 plt.show()
-
-
-
-
-# You can adjust parameters like window_size, overlap, etc.
-velocities = frames.get_piv() # not frames_proj
-
-# 6. (Optional) Filter spurious velocities
-# pyorc offers various filtering options
-filtered_velocities = pyorc.velocimetry.filter_velocities(velocities)
-
-# 7. (Optional) Extract velocities over a transect and estimate discharge
-# First, define a transect (e.g., using geographical coordinates or points in camera view)
-# For simplicity, we assume a pre-defined transect in the camera_config
-# transect_config = camera_config.get_transect("my_river_transect")
-# discharge_results = pyorc.transect.estimate_discharge(filtered_velocities, transect_config)
-
-# 8. (Optional) Plot results
-# pyorc allows plotting velocities and frames in various perspectives
-# pyorc.plot.plot_velocities(filtered_velocities, in_camera_view=True)
-# pyorc.plot.plot_frames(frames, frame_number=0)
-
-# 9. (Optional) Save results
-# filtered_velocities.to_netcdf("path/to/save/velocities.nc")
 
