@@ -9,7 +9,14 @@ import rasterio.enums
 import rasterio.transform
 
 
-def extract_frame(video_path, frame_number=0):
+def get_nframes(video_path):
+    cap = cv2.VideoCapture(video_path)
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return n
+
+
+def extract_frame(video_path, frame_number):
     cap = cv2.VideoCapture(video_path)
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
     ret, frame = cap.read()
@@ -137,10 +144,13 @@ def save_debug_image(frame_bgr, frame_pts, path):
 
 
 def georeference(video_path, orthophoto_path, output_path,
-                 frame_number=0, n_gcps=20,
+                 frame_number=None, n_gcps=20,
                  h_ref=0.0, z_0=0.0,
                  max_ortho_pixels=4_000_000,
                  debug_image_path=None):
+
+    if frame_number is None:
+        frame_number = get_nframes(video_path) // 2
 
     print(f"Extracting frame {frame_number} from {video_path}")
     frame = extract_frame(video_path, frame_number)
@@ -196,8 +206,8 @@ def main():
                         help="Georeferenced GeoTIFF orthophoto")
     parser.add_argument("--output",             required=True,
                         help="Output camera_config.json path")
-    parser.add_argument("--frame",              type=int, default=0,
-                        help="Frame index to use for matching (default: 0)")
+    parser.add_argument("--frame",              type=int, default=None,
+                        help="Frame index to use for matching (default: middle frame)")
     parser.add_argument("--n-gcps",             type=int, default=20,
                         help="Number of GCPs to extract (default: 20)")
     parser.add_argument("--h-ref",              type=float, default=0.0,
