@@ -8,13 +8,23 @@ results_dir:       results             # figures and velocity data (not tracked 
 video_extension: MP4   # file extension for raw videos (case-sensitive on Linux)
 
 # ── Georeferencing ────────────────────────────────────────────────────────────
-# Zach's SfM orthophoto covering the full field area (not tracked in git).
-orthophoto: data/orthophoto.tif
+# Method: sift  — automatic matching against Zach's orthophoto (field use)
+#         lab   — known physical dimensions, no orthophoto needed (lab / test use)
+georeference_method: sift
 
+# Settings for georeference_method: sift
+orthophoto: data/orthophoto.tif   # Zach's SfM GeoTIFF (not tracked in git)
 georeference:
   # frame_number: null        # override to use a specific frame; default is middle of clip
   n_gcps:           20        # number of spatially distributed GCPs to extract
   max_ortho_pixels: 4000000   # downsample orthophoto to ~this many pixels for SIFT
+
+# Settings for georeference_method: lab
+lab:
+  width_m:          2.0       # physical width of field of view (m)
+  height_m:         1.0       # physical height of field of view (m)
+  # corners:        data/lab_corners.json  # optional: pixel coords of LL,UL,UR,LR
+  # Omit width_m/height_m entirely for a placeholder test run (units will be wrong)
 
 # ── PIV parameters ────────────────────────────────────────────────────────────
 piv:
