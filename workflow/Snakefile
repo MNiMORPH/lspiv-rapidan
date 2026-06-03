@@ -5,7 +5,9 @@ STAB_DIR   = config["stabilized_dir"]
 CAM_DIR    = config["camera_config_dir"]
 RESULTS    = config["results_dir"]
 EXT        = config["video_extension"]
-ORTHOPHOTO = config["orthophoto"]
+ORTHOPHOTO = config.get("orthophoto", "")
+
+GEO_METHOD = config.get("georeference_method", "sift")
 
 SAMPLES, = glob_wildcards(f"{RAW_DIR}/{{sample}}.{EXT}")
 
@@ -24,30 +26,46 @@ rule stabilize:
         "lspiv-stabilize --input {input.video} --output {output.video}"
 
 
+def georeference_inputs(wildcards):
+    inputs = {"video": f"{STAB_DIR}/{wildcards.sample}.mp4"}
+    if GEO_METHOD == "sift":
+        inputs["orthophoto"] = ORTHOPHOTO
+    return inputs
+
 rule georeference:
-    input:
-        video=STAB_DIR + "/{sample}.mp4",
-        orthophoto=ORTHOPHOTO
+    input: unpack(georeference_inputs)
     output:
         camera_config=CAM_DIR + "/{sample}.json"
     params:
-        frame_arg        = ("--frame " + str(config["georeference"]["frame_number"])
-                            if config["georeference"].get("frame_number") is not None
-                            else ""),
-        n_gcps           = config["georeference"]["n_gcps"],
-        max_ortho_pixels = config["georeference"]["max_ortho_pixels"],
-        debug_image      = RESULTS + "/{sample}/georeference_debug.png",
-    shell:
-        """
-        lspiv-georeference \
-            --video            {input.video} \
-            --orthophoto       {input.orthophoto} \
-            --output           {output.camera_config} \
-            {params.frame_arg} \
-            --n-gcps           {params.n_gcps} \
-            --max-ortho-pixels {params.max_ortho_pixels} \
-            --debug-image      {params.debug_image}
-        """
+        debug_image = RESULTS + "/{sample}/georeference_debug.png",
+    run:
+        if GEO_METHOD == "sift":
+            geo  = config["georeference"]
+            farg = (f"--frame {geo['frame_number']}"
+                    if geo.get("frame_number") is not None else "")
+            shell(
+                f"lspiv-georeference"
+                f"  --video            {{input.video}}"
+                f"  --orthophoto       {{input.orthophoto}}"
+                f"  --output           {{output.camera_config}}"
+                f"  {farg}"
+                f"  --n-gcps           {geo['n_gcps']}"
+                f"  --max-ortho-pixels {geo['max_ortho_pixels']}"
+                f"  --debug-image      {{params.debug_image}}"
+            )
+        elif GEO_METHOD == "lab":
+            lab = config.get("lab", {})
+            warg = f"--width  {lab['width_m']}"  if "width_m"  in lab else ""
+            harg = f"--height {lab['height_m']}" if "height_m" in lab else ""
+            carg = f"--corners {lab['corners']}" if "corners"  in lab else ""
+            shell(
+                f"lspiv-lab-config"
+                f"  --video  {{input.video}}"
+                f"  --output {{output.camera_config}}"
+                f"  {warg} {harg} {carg}"
+            )
+        else:
+            raise ValueError(f"Unknown georeference_method: '{GEO_METHOD}'. Use 'sift' or 'lab'.")
 
 
 rule piv:
