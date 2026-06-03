@@ -19,6 +19,7 @@ dependencies = [
 [project.scripts]
 lspiv-stabilize    = "lspiv.stabilize:main"
 lspiv-georeference = "lspiv.georeference:main"
+lspiv-lab-config   = "lspiv.lab_config:main"
 lspiv-piv          = "lspiv.piv:main"
 
 [tool.setuptools.packages.find]
