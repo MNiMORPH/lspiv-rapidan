@@ -1,4 +1,4 @@
-configfile: "../config/config.yaml"
+configfile: "config/config.yaml"
 
 RAW_DIR    = config["raw_dir"]
 STAB_DIR   = config["stabilized_dir"]
