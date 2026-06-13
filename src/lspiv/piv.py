@@ -16,6 +16,9 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pyorc
+import pyproj
+import rasterio
+import rasterio.transform
 
 
 def _placeholder_camera_config(width, height, crs=32615):
@@ -46,6 +49,63 @@ def _placeholder_camera_config(width, height, crs=32615):
         ]
     )
     return camera_config
+
+
+def _save_netcdf(ds_mean, output_dir):
+    path = os.path.join(output_dir, "velocity.nc")
+    ds_mean.to_netcdf(path)
+    print(f"Velocity NetCDF saved to {path}")
+
+
+def _save_geotiff(ds_mean, output_dir):
+    x = ds_mean.x.values          # 1-D UTM easting, shape (nx,)
+    y = ds_mean.y.values          # 1-D UTM northing, shape (ny,), increasing
+    dx = float(x[1] - x[0])
+    dy = float(y[1] - y[0])
+
+    v_x   = ds_mean["v_x"].values.astype("float32")   # (ny, nx)
+    v_y   = ds_mean["v_y"].values.astype("float32")
+    speed = np.sqrt(v_x**2 + v_y**2).astype("float32")
+    corr  = ds_mean["corr"].values.astype("float32")
+    s2n   = ds_mean["s2n"].values.astype("float32")
+
+    # CRS from camera_config stored in dataset attributes
+    cc = json.loads(ds_mean.attrs["camera_config"])
+    crs = pyproj.CRS(cc["crs"])
+
+    # Rasterio stores rows top-to-bottom (north-to-south); y increases northward,
+    # so row 0 = y.max().  from_origin takes the top-left corner of pixel (0,0).
+    transform = rasterio.transform.from_origin(
+        west=float(x.min()) - dx / 2,
+        north=float(y.max()) + dy / 2,
+        xsize=dx,
+        ysize=dy,
+    )
+
+    bands = [
+        ("speed_m_s",  speed),
+        ("v_x_m_s",    v_x),
+        ("v_y_m_s",    v_y),
+        ("corr",       corr),
+        ("s2n",        s2n),
+    ]
+
+    path = os.path.join(output_dir, "velocity.tif")
+    with rasterio.open(
+        path, "w",
+        driver="GTiff",
+        height=len(y),
+        width=len(x),
+        count=len(bands),
+        dtype="float32",
+        crs=crs,
+        transform=transform,
+    ) as dst:
+        for i, (name, arr) in enumerate(bands, start=1):
+            dst.write(np.flipud(arr), i)   # flip so north is up
+            dst.update_tags(i, name=name)
+
+    print(f"Velocity GeoTIFF saved to {path}  ({len(bands)} bands: {[b[0] for b in bands]})")
 
 
 def run_piv(video_path, output_dir, camera_config_path=None,
@@ -97,6 +157,9 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     plt.savefig(os.path.join(output_dir, "PIVquiverFrame.png"))
 
     plt.show()
+
+    _save_netcdf(ds_mean, output_dir)
+    _save_geotiff(ds_mean, output_dir)
 
 
 def main():

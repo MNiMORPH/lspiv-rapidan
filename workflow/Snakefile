@@ -14,7 +14,9 @@ SAMPLES, = glob_wildcards(f"{RAW_DIR}/{{sample}}.{EXT}")
 
 rule all:
     input:
-        expand(f"{RESULTS}/{{sample}}/PIVquiverFrame.png", sample=SAMPLES)
+        expand(f"{RESULTS}/{{sample}}/PIVquiverFrame.png", sample=SAMPLES),
+        expand(f"{RESULTS}/{{sample}}/velocity.nc",        sample=SAMPLES),
+        expand(f"{RESULTS}/{{sample}}/velocity.tif",       sample=SAMPLES)
 
 
 rule stabilize:
@@ -73,7 +75,9 @@ rule piv:
         camera_config = CAM_DIR  + "/{sample}.json"
     output:
         frame      = RESULTS + "/{sample}/Frame.png",
-        piv_figure = RESULTS + "/{sample}/PIVquiverFrame.png"
+        piv_figure = RESULTS + "/{sample}/PIVquiverFrame.png",
+        netcdf     = RESULTS + "/{sample}/velocity.nc",
+        geotiff    = RESULTS + "/{sample}/velocity.tif"
     params:
         start_frame = config["piv"]["start_frame"],
         end_frame   = config["piv"].get("end_frame") or "",
