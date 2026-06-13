@@ -70,7 +70,14 @@ def _velocity_arrays(ds_mean):
 
 
 def _dsm_water_mask(ds_mean, dsm_path, water_elev_m=None, elev_tolerance=0.5):
-    """Boolean (ny, nx) mask — True where the DSM elevation indicates water."""
+    """Boolean (ny, nx) mask — True where the DSM elevation indicates water.
+
+    When water_elev_m is None (auto mode), the lower bound is the 5th-percentile
+    elevation and the upper bound is the 90th-percentile elevation of the domain.
+    This captures the full waterfall relief while excluding the highest rock walls.
+    When water_elev_m is supplied, cells at or below that value plus elev_tolerance
+    are kept (suitable for a flat-water reach with a known gauge stage).
+    """
     xs, ys = _utm_coords(ds_mean)
     coords = list(zip(xs.flatten(), ys.flatten()))
 
@@ -82,14 +89,17 @@ def _dsm_water_mask(ds_mean, dsm_path, water_elev_m=None, elev_tolerance=0.5):
         elev[elev == nodata] = np.nan
 
     if water_elev_m is None:
-        water_elev_m = float(np.nanpercentile(elev, 5))
-        print(f"DSM: auto-detected water surface elevation {water_elev_m:.2f} m "
-              f"(5th percentile of domain)")
+        lower = float(np.nanpercentile(elev, 5))
+        upper = float(np.nanpercentile(elev, 90))
+        print(f"DSM: auto-detected elevation range {lower:.2f}–{upper:.2f} m "
+              f"(5th–90th percentile of domain)")
+        mask = elev <= upper
+    else:
+        upper = water_elev_m + elev_tolerance
+        mask = elev <= upper
 
-    mask = elev <= (water_elev_m + elev_tolerance)
-    n = int(mask.sum())
-    print(f"DSM: {n}/{mask.size} cells at or below {water_elev_m + elev_tolerance:.2f} m "
-          f"classified as water")
+    n = int(np.sum(mask))
+    print(f"DSM: {n}/{mask.size} cells at or below {upper:.2f} m classified as water")
     return mask
 
 
