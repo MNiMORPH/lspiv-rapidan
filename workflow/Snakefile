@@ -6,6 +6,7 @@ CAM_DIR    = config["camera_config_dir"]
 RESULTS    = config["results_dir"]
 EXT        = config["video_extension"]
 ORTHOPHOTO = config.get("orthophoto", "")
+DSM        = config.get("piv", {}).get("dsm", "")
 
 GEO_METHOD = config.get("georeference_method", "sift")
 
@@ -14,10 +15,11 @@ SAMPLES, = glob_wildcards(f"{RAW_DIR}/{{sample}}.{EXT}")
 
 rule all:
     input:
-        expand(f"{RESULTS}/{{sample}}/PIVquiverFrame.png", sample=SAMPLES),
-        expand(f"{RESULTS}/{{sample}}/velocity.nc",        sample=SAMPLES),
-        expand(f"{RESULTS}/{{sample}}/velocity.tif",       sample=SAMPLES),
-        expand(f"{RESULTS}/{{sample}}/velocity.gpkg",      sample=SAMPLES)
+        expand(f"{RESULTS}/{{sample}}/PIVquiverFrame.png",    sample=SAMPLES),
+        expand(f"{RESULTS}/{{sample}}/PIVquiverFiltered.png", sample=SAMPLES),
+        expand(f"{RESULTS}/{{sample}}/velocity.nc",           sample=SAMPLES),
+        expand(f"{RESULTS}/{{sample}}/velocity.tif",          sample=SAMPLES),
+        expand(f"{RESULTS}/{{sample}}/velocity.gpkg",         sample=SAMPLES)
 
 
 rule stabilize:
@@ -70,16 +72,24 @@ rule georeference:
             raise ValueError(f"Unknown georeference_method: '{GEO_METHOD}'. Use 'sift' or 'lab'.")
 
 
+def piv_inputs(wildcards):
+    inputs = {
+        "video":         STAB_DIR + f"/{wildcards.sample}.mp4",
+        "camera_config": CAM_DIR  + f"/{wildcards.sample}.json",
+    }
+    if DSM:
+        inputs["dsm"] = DSM
+    return inputs
+
 rule piv:
-    input:
-        video         = STAB_DIR + "/{sample}.mp4",
-        camera_config = CAM_DIR  + "/{sample}.json"
+    input: unpack(piv_inputs)
     output:
-        frame      = RESULTS + "/{sample}/Frame.png",
-        piv_figure = RESULTS + "/{sample}/PIVquiverFrame.png",
-        netcdf     = RESULTS + "/{sample}/velocity.nc",
-        geotiff    = RESULTS + "/{sample}/velocity.tif",
-        gpkg       = RESULTS + "/{sample}/velocity.gpkg"
+        frame           = RESULTS + "/{sample}/Frame.png",
+        piv_figure      = RESULTS + "/{sample}/PIVquiverFrame.png",
+        piv_filtered    = RESULTS + "/{sample}/PIVquiverFiltered.png",
+        netcdf          = RESULTS + "/{sample}/velocity.nc",
+        geotiff         = RESULTS + "/{sample}/velocity.tif",
+        gpkg            = RESULTS + "/{sample}/velocity.gpkg"
     params:
         start_frame = config["piv"]["start_frame"],
         end_frame   = config["piv"].get("end_frame") or "",
@@ -87,6 +97,8 @@ rule piv:
         engine      = config["piv"]["engine"],
         min_s2n     = config["piv"]["min_s2n"],
         min_corr    = config["piv"]["min_corr"],
+        dsm         = config["piv"].get("dsm") or "",
+        water_elev_m= config["piv"].get("water_elev_m") or "",
         output_dir  = RESULTS + "/{sample}",
     shell:
         """
@@ -99,5 +111,7 @@ rule piv:
             --piv-engine    {params.engine} \
             --min-s2n       {params.min_s2n} \
             --min-corr      {params.min_corr} \
-            $([ -n "{params.end_frame}" ] && echo "--end-frame {params.end_frame}")
+            $([ -n "{params.end_frame}" ] && echo "--end-frame {params.end_frame}") \
+            $([ -n "{params.dsm}" ] && echo "--dsm {params.dsm}") \
+            $([ -n "{params.water_elev_m}" ] && echo "--water-elev-m {params.water_elev_m}")
         """
