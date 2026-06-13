@@ -13,12 +13,14 @@ if os.path.isdir(_conda_proj_data):
     pyproj.datadir.set_data_dir(_conda_proj_data)
 
 import cv2
+import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pyorc
 import pyproj
 import rasterio
 import rasterio.transform
+from shapely.geometry import Point
 
 
 def _placeholder_camera_config(width, height, crs=32615):
@@ -111,8 +113,50 @@ def _save_geotiff(ds_mean, output_dir):
     print(f"Velocity GeoTIFF saved to {path}  ({len(bands)} bands: {[b[0] for b in bands]})")
 
 
+def _save_gpkg(ds_mean, output_dir, min_s2n=1.2, min_corr=0.3):
+    x = ds_mean.x.values   # 1-D easting
+    y = ds_mean.y.values   # 1-D northing
+
+    v_x   = ds_mean["v_x"].values
+    v_y   = ds_mean["v_y"].values
+    speed = np.sqrt(v_x**2 + v_y**2)
+    bearing = (90.0 - np.degrees(np.arctan2(v_y, v_x))) % 360.0
+    corr  = ds_mean["corr"].values
+    s2n   = ds_mean["s2n"].values
+
+    cc  = json.loads(ds_mean.attrs["camera_config"])
+    crs = pyproj.CRS(cc["crs"])
+
+    # Meshgrid of coordinates matching (y, x) array layout
+    xx, yy = np.meshgrid(x, y)
+
+    mask = (s2n >= min_s2n) & (corr >= min_corr)
+    n_total  = mask.size
+    n_kept   = mask.sum()
+
+    records = {
+        "geometry": [Point(xi, yi) for xi, yi in zip(xx[mask], yy[mask])],
+        "v_x_m_s":        v_x[mask].astype(float),
+        "v_y_m_s":        v_y[mask].astype(float),
+        "speed_m_s":      speed[mask].astype(float),
+        "bearing_deg_cwN": bearing[mask].astype(float),
+        "corr":           corr[mask].astype(float),
+        "s2n":            s2n[mask].astype(float),
+    }
+
+    gdf = gpd.GeoDataFrame(records, crs=crs)
+    path = os.path.join(output_dir, "velocity.gpkg")
+    gdf.to_file(path, driver="GPKG")
+
+    print(
+        f"Velocity GeoPackage saved to {path}  "
+        f"({n_kept}/{n_total} points after s2n≥{min_s2n}, corr≥{min_corr})"
+    )
+
+
 def run_piv(video_path, output_dir, camera_config_path=None,
-            start_frame=1, end_frame=None, h_a=0.0, piv_engine="numba"):
+            start_frame=1, end_frame=None, h_a=0.0, piv_engine="numba",
+            min_s2n=6.0, min_corr=0.5):
     os.makedirs(output_dir, exist_ok=True)
 
     cap = cv2.VideoCapture(video_path)
@@ -163,6 +207,7 @@ def run_piv(video_path, output_dir, camera_config_path=None,
 
     _save_netcdf(ds_mean, output_dir)
     _save_geotiff(ds_mean, output_dir)
+    _save_gpkg(ds_mean, output_dir, min_s2n=min_s2n, min_corr=min_corr)
 
 
 def main():
@@ -172,8 +217,10 @@ def main():
     parser.add_argument("--output-dir",    required=True,  help="Directory to write output figures")
     parser.add_argument("--start-frame",   type=int, default=1)
     parser.add_argument("--end-frame",     type=int, default=None)
-    parser.add_argument("--h-a",           type=float, default=0.0, help="Actual water level (m)")
+    parser.add_argument("--h-a",           type=float, default=0.0,  help="Actual water level (m)")
     parser.add_argument("--piv-engine",    default="numba", choices=["numba", "opencv"])
+    parser.add_argument("--min-s2n",       type=float, default=6.0,  help="Min signal-to-noise for GPKG filter (default: 6.0)")
+    parser.add_argument("--min-corr",      type=float, default=0.5,  help="Min correlation for GPKG filter (default: 0.5)")
     args = parser.parse_args()
 
     run_piv(
@@ -184,6 +231,8 @@ def main():
         end_frame=args.end_frame,
         h_a=args.h_a,
         piv_engine=args.piv_engine,
+        min_s2n=args.min_s2n,
+        min_corr=args.min_corr,
     )
 
 

@@ -16,7 +16,8 @@ rule all:
     input:
         expand(f"{RESULTS}/{{sample}}/PIVquiverFrame.png", sample=SAMPLES),
         expand(f"{RESULTS}/{{sample}}/velocity.nc",        sample=SAMPLES),
-        expand(f"{RESULTS}/{{sample}}/velocity.tif",       sample=SAMPLES)
+        expand(f"{RESULTS}/{{sample}}/velocity.tif",       sample=SAMPLES),
+        expand(f"{RESULTS}/{{sample}}/velocity.gpkg",      sample=SAMPLES)
 
 
 rule stabilize:
@@ -77,12 +78,15 @@ rule piv:
         frame      = RESULTS + "/{sample}/Frame.png",
         piv_figure = RESULTS + "/{sample}/PIVquiverFrame.png",
         netcdf     = RESULTS + "/{sample}/velocity.nc",
-        geotiff    = RESULTS + "/{sample}/velocity.tif"
+        geotiff    = RESULTS + "/{sample}/velocity.tif",
+        gpkg       = RESULTS + "/{sample}/velocity.gpkg"
     params:
         start_frame = config["piv"]["start_frame"],
         end_frame   = config["piv"].get("end_frame") or "",
         h_a         = config["piv"]["h_a"],
         engine      = config["piv"]["engine"],
+        min_s2n     = config["piv"]["min_s2n"],
+        min_corr    = config["piv"]["min_corr"],
         output_dir  = RESULTS + "/{sample}",
     shell:
         """
@@ -93,5 +97,7 @@ rule piv:
             --start-frame   {params.start_frame} \
             --h-a           {params.h_a} \
             --piv-engine    {params.engine} \
+            --min-s2n       {params.min_s2n} \
+            --min-corr      {params.min_corr} \
             $([ -n "{params.end_frame}" ] && echo "--end-frame {params.end_frame}")
         """

@@ -31,3 +31,5 @@ piv:
   start_frame: 1
   end_frame:           # leave blank to use all frames
   h_a:         0.0     # actual water surface level (m); update when known
+  min_s2n:     6.0     # signal-to-noise threshold for GPKG point filter
+  min_corr:    0.5     # cross-correlation threshold for GPKG point filter
