@@ -1,6 +1,16 @@
 import argparse
 import json
 import os
+import sys
+
+# conda's PROJ C library (9.7+) ships a newer proj.db (layout v1.6) than pyproj
+# bundles (v1.4), so proj_context_set_database_path fails when using `conda run`
+# (which skips activation scripts that set PROJ_DATA). Point pyproj at the conda
+# env's database before importing pyorc, which triggers the first CRS lookup.
+_conda_proj_data = os.path.join(sys.prefix, "share", "proj")
+if os.path.isdir(_conda_proj_data):
+    import pyproj.datadir
+    pyproj.datadir.set_data_dir(_conda_proj_data)
 
 import cv2
 import matplotlib.pyplot as plt
