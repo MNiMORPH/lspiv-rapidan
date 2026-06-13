@@ -33,3 +33,5 @@ piv:
   h_a:         0.0     # actual water surface level (m); update when known
   min_s2n:     6.0     # signal-to-noise threshold for GPKG point filter
   min_corr:    0.5     # cross-correlation threshold for GPKG point filter
+  dsm:         data/dsm.tif   # DSM GeoTIFF for land/water masking (not tracked in git)
+  water_elev_m:                # water surface elevation (m); auto-detected if blank
