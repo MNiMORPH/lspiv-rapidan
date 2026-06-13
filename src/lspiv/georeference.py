@@ -178,7 +178,10 @@ def georeference(video_path, orthophoto_path, output_path,
     if debug_image_path:
         save_debug_image(frame, frame_pts, debug_image_path)
 
-    epsg = crs.to_epsg()
+    pc = pyproj.CRS(crs.to_wkt())
+    if pc.type_name == "Compound CRS":
+        pc = pc.sub_crs_list[0]  # take the horizontal (projected) component
+    epsg = pc.to_epsg()
     if epsg is None:
         raise RuntimeError(
             f"Could not determine EPSG code from orthophoto CRS: {crs}. "
