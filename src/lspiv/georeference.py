@@ -115,6 +115,7 @@ def match_frame_to_orthophoto(frame_bgr, ortho_gray, ratio_threshold=0.7):
     return (
         src_pts[inlier_mask].reshape(-1, 2),
         dst_pts[inlier_mask].reshape(-1, 2),
+        H,
     )
 
 
@@ -147,7 +148,8 @@ def ortho_pixels_to_world(ortho_pts, transform):
 
 
 def save_debug_image(frame_bgr, frame_pts, path):
-    """Save a copy of the frame with GCP locations marked."""
+    """Save a copy of the frame with GCP corner locations marked."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     debug = frame_bgr.copy()
     for i, (col, row) in enumerate(frame_pts):
         cv2.circle(debug, (int(col), int(row)), 8, (0, 255, 0), -1)
@@ -156,12 +158,13 @@ def save_debug_image(frame_bgr, frame_pts, path):
             (int(col) + 10, int(row)),
             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2,
         )
-    cv2.imwrite(path, debug)
+    if not cv2.imwrite(path, debug):
+        raise RuntimeError(f"Failed to write debug image to {path}")
     print(f"Debug image saved to {path}")
 
 
 def georeference(video_path, orthophoto_path, output_path,
-                 frame_number=None, n_gcps=20,
+                 frame_number=None,
                  h_ref=0.0, z_0=0.0,
                  max_ortho_pixels=4_000_000,
                  debug_image_path=None):
@@ -177,15 +180,20 @@ def georeference(video_path, orthophoto_path, output_path,
     ortho_gray, ortho_transform, crs = load_orthophoto_gray(orthophoto_path, max_ortho_pixels)
 
     print("Matching features (SIFT + RANSAC)...")
-    frame_pts, ortho_pts = match_frame_to_orthophoto(frame, ortho_gray)
+    _, _, H = match_frame_to_orthophoto(frame, ortho_gray)
 
-    frame_pts, ortho_pts = select_spread_gcps(frame_pts, ortho_pts, n_gcps, frame.shape)
-    print(f"Selected {len(frame_pts)} spatially distributed GCPs.")
-
-    world_pts = ortho_pixels_to_world(ortho_pts, ortho_transform)
+    # Project the 4 frame corners through the homography to get world GCPs.
+    # pyORC requires exactly 2 or 4 GCPs; corners give the tightest bbox.
+    frame_corners = np.array(
+        [[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32
+    )
+    ortho_corners = cv2.perspectiveTransform(
+        frame_corners.reshape(-1, 1, 2), H
+    ).reshape(-1, 2)
+    world_pts = ortho_pixels_to_world(ortho_corners, ortho_transform)
 
     if debug_image_path:
-        save_debug_image(frame, frame_pts, debug_image_path)
+        save_debug_image(frame, frame_corners, debug_image_path)
 
     pc = pyproj.CRS(crs.to_wkt())
     if pc.type_name == "Compound CRS":
@@ -201,7 +209,7 @@ def georeference(video_path, orthophoto_path, output_path,
         "height": h,
         "width": w,
         "gcps": {
-            "src": frame_pts.tolist(),
+            "src": frame_corners.tolist(),
             "dst": world_pts.tolist(),
             "h_ref": h_ref,
             "z_0": z_0,
@@ -228,8 +236,6 @@ def main():
                         help="Output camera_config.json path")
     parser.add_argument("--frame",              type=int, default=None,
                         help="Frame index to use for matching (default: middle frame)")
-    parser.add_argument("--n-gcps",             type=int, default=20,
-                        help="Number of GCPs to extract (default: 20)")
     parser.add_argument("--h-ref",              type=float, default=0.0,
                         help="Reference water surface elevation (m)")
     parser.add_argument("--z-0",               type=float, default=0.0,
@@ -245,7 +251,6 @@ def main():
         orthophoto_path=args.orthophoto,
         output_path=args.output,
         frame_number=args.frame,
-        n_gcps=args.n_gcps,
         h_ref=args.h_ref,
         z_0=args.z_0,
         max_ortho_pixels=args.max_ortho_pixels,
