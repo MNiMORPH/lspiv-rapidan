@@ -46,22 +46,31 @@ def load_orthophoto_gray(orthophoto_path, max_pixels=4_000_000):
             out_shape=(src.count, out_h, out_w),
             resampling=rasterio.enums.Resampling.average,
         )
-        # Affine transform that maps downsampled pixel coords → world coords
         scaled_transform = src.transform * rasterio.transform.Affine.scale(
             w / out_w, h / out_h
         )
+        nodata_val = src.nodata
         crs = src.crs
 
     print(f"Orthophoto loaded at {out_w}x{out_h} (scale {scale:.3f})")
 
+    # Build valid-pixel mask (nodata fills regions outside the survey footprint)
+    valid = (data[0] != nodata_val) if nodata_val is not None else np.ones((out_h, out_w), dtype=bool)
+
     if data.shape[0] >= 3:
         rgb = np.moveaxis(data[:3], 0, -1).astype(np.float32)
-        rgb = (rgb - rgb.min()) / (rgb.max() - rgb.min() + 1e-9) * 255
+        valid_vals = rgb[valid]
+        vmin, vmax = np.percentile(valid_vals, 2), np.percentile(valid_vals, 98)
+        rgb = np.clip((rgb - vmin) / (vmax - vmin + 1e-9) * 255, 0, 255)
         gray = cv2.cvtColor(rgb.astype(np.uint8), cv2.COLOR_RGB2GRAY)
     else:
         band = data[0].astype(np.float32)
-        band = (band - band.min()) / (band.max() - band.min() + 1e-9) * 255
-        gray = band.astype(np.uint8)
+        valid_vals = band[valid]
+        vmin, vmax = np.percentile(valid_vals, 2), np.percentile(valid_vals, 98)
+        gray = np.clip((band - vmin) / (vmax - vmin + 1e-9) * 255, 0, 255).astype(np.uint8)
+
+    # Blank out nodata so boundary edges don't generate false SIFT keypoints
+    gray[~valid] = 0
 
     return gray, scaled_transform, crs
 
