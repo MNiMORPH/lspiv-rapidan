@@ -82,12 +82,15 @@ def _save_geotiff(ds_mean, output_dir):
         ysize=dy,
     )
 
+    bearing = (90.0 - np.degrees(np.arctan2(v_y, v_x))) % 360.0
+
     bands = [
-        ("speed_m_s",  speed),
-        ("v_x_m_s",    v_x),
-        ("v_y_m_s",    v_y),
-        ("corr",       corr),
-        ("s2n",        s2n),
+        ("speed_m_s",       speed),
+        ("v_x_m_s",         v_x),
+        ("v_y_m_s",         v_y),
+        ("bearing_deg_cwN", bearing.astype("float32")),
+        ("corr",            corr),
+        ("s2n",             s2n),
     ]
 
     path = os.path.join(output_dir, "velocity.tif")
