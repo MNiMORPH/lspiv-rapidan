@@ -95,6 +95,7 @@ rule piv:
         end_frame   = config["piv"].get("end_frame") or "",
         h_a         = config["piv"]["h_a"],
         engine      = config["piv"]["engine"],
+        window_size = config["piv"].get("window_size") or "",
         min_s2n     = config["piv"]["min_s2n"],
         min_corr    = config["piv"]["min_corr"],
         min_speed   = config["piv"]["min_speed"],
@@ -110,6 +111,7 @@ rule piv:
             --start-frame   {params.start_frame} \
             --h-a           {params.h_a} \
             --piv-engine    {params.engine} \
+            $([ -n "{params.window_size}" ] && echo "--window-size {params.window_size}") \
             --min-s2n       {params.min_s2n} \
             --min-corr      {params.min_corr} \
             --min-speed     {params.min_speed} \

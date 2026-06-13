@@ -28,6 +28,7 @@ lab:
 # ── PIV parameters ────────────────────────────────────────────────────────────
 piv:
   engine:      numba   # numba (fast) or opencv
+  window_size: 20      # PIV interrogation window size in pixels (default pyORC: 10; 1 px = 0.05 m)
   start_frame: 1
   end_frame:           # leave blank to use all frames
   h_a:         0.0     # actual water surface level (m); update when known
