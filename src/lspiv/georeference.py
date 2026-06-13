@@ -1,9 +1,17 @@
 import argparse
 import json
 import os
+import sys
+
+# Same PROJ db version mismatch fix as piv.py — see comment there.
+_conda_proj_data = os.path.join(sys.prefix, "share", "proj")
+if os.path.isdir(_conda_proj_data):
+    import pyproj.datadir
+    pyproj.datadir.set_data_dir(_conda_proj_data)
 
 import cv2
 import numpy as np
+import pyproj
 import rasterio
 import rasterio.enums
 import rasterio.transform
