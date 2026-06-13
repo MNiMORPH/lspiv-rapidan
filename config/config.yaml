@@ -16,7 +16,6 @@ georeference_method: sift
 orthophoto: data/orthophoto.tif   # Zach's SfM GeoTIFF (not tracked in git)
 georeference:
   # frame_number: null        # override to use a specific frame; default is middle of clip
-  n_gcps:           20        # number of spatially distributed GCPs to extract
   max_ortho_pixels: 4000000   # downsample orthophoto to ~this many pixels for SIFT
 
 # Settings for georeference_method: lab

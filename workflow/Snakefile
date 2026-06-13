@@ -49,7 +49,6 @@ rule georeference:
                 f"  --orthophoto       {{input.orthophoto}}"
                 f"  --output           {{output.camera_config}}"
                 f"  {farg}"
-                f"  --n-gcps           {geo['n_gcps']}"
                 f"  --max-ortho-pixels {geo['max_ortho_pixels']}"
                 f"  --debug-image      {{params.debug_image}}"
             )
