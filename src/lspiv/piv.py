@@ -14,6 +14,8 @@ if os.path.isdir(_conda_proj_data):
 
 import cv2
 import geopandas as gpd
+import matplotlib
+matplotlib.use("Agg")   # non-interactive backend; figures are saved to disk only
 import matplotlib.pyplot as plt
 import numpy as np
 import pyorc
@@ -264,12 +266,14 @@ def run_piv(video_path, output_dir, camera_config_path=None,
 
     plt.figure()
     p = da_rgb_proj[0].frames.plot()
-    plt.savefig(os.path.join(output_dir, "Frame.png"))
+    plt.savefig(os.path.join(output_dir, "Frame.png"), dpi=150, bbox_inches="tight")
+    plt.close()
 
     plt.figure()
     p = da_rgb_proj[0].frames.plot()
     ds_mean.velocimetry.plot(ax=p.axes)
-    plt.savefig(os.path.join(output_dir, "PIVquiverFrame.png"))
+    plt.savefig(os.path.join(output_dir, "PIVquiverFrame.png"), dpi=150, bbox_inches="tight")
+    plt.close()
 
     # Build combined filter mask: quality thresholds + speed floor + optional DSM land mask
     speed_da = np.sqrt(ds_mean["v_x"]**2 + ds_mean["v_y"]**2)
@@ -287,9 +291,8 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     plt.figure()
     p = da_rgb_proj[0].frames.plot()
     ds_filtered.velocimetry.plot(ax=p.axes)
-    plt.savefig(os.path.join(output_dir, "PIVquiverFiltered.png"))
-
-    plt.show()
+    plt.savefig(os.path.join(output_dir, "PIVquiverFiltered.png"), dpi=150, bbox_inches="tight")
+    plt.close()
 
     _save_netcdf(ds_mean, output_dir)
     _save_geotiff(ds_mean, output_dir)
