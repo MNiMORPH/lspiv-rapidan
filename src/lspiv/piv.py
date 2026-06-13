@@ -86,9 +86,9 @@ def _save_geotiff(ds_mean, output_dir):
 
     bands = [
         ("speed_m_s",       speed),
+        ("bearing_deg_cwN", bearing.astype("float32")),
         ("v_x_m_s",         v_x),
         ("v_y_m_s",         v_y),
-        ("bearing_deg_cwN", bearing.astype("float32")),
         ("corr",            corr),
         ("s2n",             s2n),
     ]
