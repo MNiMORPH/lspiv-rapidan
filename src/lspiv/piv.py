@@ -90,9 +90,9 @@ def _dsm_water_mask(ds_mean, dsm_path, water_elev_m=None, elev_tolerance=0.5):
 
     if water_elev_m is None:
         lower = float(np.nanpercentile(elev, 5))
-        upper = float(np.nanpercentile(elev, 90))
+        upper = float(np.nanpercentile(elev, 80))
         print(f"DSM: auto-detected elevation range {lower:.2f}–{upper:.2f} m "
-              f"(5th–90th percentile of domain)")
+              f"(5th–80th percentile of domain)")
         mask = elev <= upper
     else:
         upper = water_elev_m + elev_tolerance
@@ -167,12 +167,12 @@ def _save_geotiff(ds_mean, output_dir):
     print(f"Velocity GeoTIFF saved to {path}  ({len(bands)} bands: {[b[0] for b in bands]})")
 
 
-def _save_gpkg(ds_mean, output_dir, min_s2n=6.0, min_corr=0.5, dsm_mask=None):
+def _save_gpkg(ds_mean, output_dir, min_s2n=6.0, min_corr=0.5, min_speed=0.05, dsm_mask=None):
     xs, ys = _utm_coords(ds_mean)
     v_x, v_y, speed, bearing, corr, s2n = _velocity_arrays(ds_mean)
     crs = _crs_from_ds(ds_mean)
 
-    mask = (s2n >= min_s2n) & (corr >= min_corr)
+    mask = (s2n >= min_s2n) & (corr >= min_corr) & (speed >= min_speed)
     if dsm_mask is not None:
         mask = mask & dsm_mask
 
@@ -198,7 +198,7 @@ def _save_gpkg(ds_mean, output_dir, min_s2n=6.0, min_corr=0.5, dsm_mask=None):
 
 def run_piv(video_path, output_dir, camera_config_path=None,
             start_frame=1, end_frame=None, h_a=0.0, piv_engine="numba",
-            min_s2n=6.0, min_corr=0.5,
+            min_s2n=6.0, min_corr=0.5, min_speed=0.05,
             dsm_path=None, water_elev_m=None):
     os.makedirs(output_dir, exist_ok=True)
 
@@ -246,9 +246,12 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     ds_mean.velocimetry.plot(ax=p.axes)
     plt.savefig(os.path.join(output_dir, "PIVquiverFrame.png"))
 
-    # Build combined filter mask: quality thresholds + optional DSM land mask
+    # Build combined filter mask: quality thresholds + speed floor + optional DSM land mask
     import xarray as xr
-    quality_mask = (ds_mean["s2n"] >= min_s2n) & (ds_mean["corr"] >= min_corr)
+    speed_da = np.sqrt(ds_mean["v_x"]**2 + ds_mean["v_y"]**2)
+    quality_mask = ((ds_mean["s2n"] >= min_s2n)
+                    & (ds_mean["corr"] >= min_corr)
+                    & (speed_da >= min_speed))
     dsm_mask = None
     if dsm_path is not None:
         dsm_mask_np = _dsm_water_mask(ds_mean, dsm_path, water_elev_m)
@@ -267,7 +270,7 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     _save_netcdf(ds_mean, output_dir)
     _save_geotiff(ds_mean, output_dir)
     _save_gpkg(ds_mean, output_dir, min_s2n=min_s2n, min_corr=min_corr,
-               dsm_mask=dsm_mask)
+               min_speed=min_speed, dsm_mask=dsm_mask)
 
 
 def main():
@@ -281,6 +284,7 @@ def main():
     parser.add_argument("--piv-engine",     default="numba", choices=["numba", "opencv"])
     parser.add_argument("--min-s2n",        type=float, default=6.0,  help="Min signal-to-noise for point filter (default: 6.0)")
     parser.add_argument("--min-corr",       type=float, default=0.5,  help="Min correlation for point filter (default: 0.5)")
+    parser.add_argument("--min-speed",      type=float, default=0.05, help="Min speed (m/s) to include a vector (default: 0.05)")
     parser.add_argument("--dsm",            default=None,   help="DSM GeoTIFF for land/water masking")
     parser.add_argument("--water-elev-m",   type=float, default=None, help="Water surface elevation (m); auto-detected from DSM if omitted")
     args = parser.parse_args()
@@ -295,6 +299,7 @@ def main():
         piv_engine=args.piv_engine,
         min_s2n=args.min_s2n,
         min_corr=args.min_corr,
+        min_speed=args.min_speed,
         dsm_path=args.dsm,
         water_elev_m=args.water_elev_m,
     )
