@@ -126,6 +126,7 @@ def _save_geotiff(ds_mean, output_dir):
 
     src_pts = np.column_stack([xs.flatten(), ys.flatten()])
 
+    has_std = "v_x_std" in ds_mean
     bands_data = [
         ("speed_m_s",       speed),
         ("bearing_deg_cwN", bearing),
@@ -134,6 +135,12 @@ def _save_geotiff(ds_mean, output_dir):
         ("corr",            corr),
         ("s2n",             s2n),
     ]
+    if has_std:
+        bands_data += [
+            ("speed_std_m_s", ds_mean["speed_std"].values),
+            ("v_x_std_m_s",   ds_mean["v_x_std"].values),
+            ("v_y_std_m_s",   ds_mean["v_y_std"].values),
+        ]
 
     bands = [
         (name, griddata(src_pts, arr.flatten(), (xi_grid, yi_grid), method="linear").astype("float32"))
@@ -178,15 +185,22 @@ def _save_gpkg(ds_mean, output_dir, min_s2n=6.0, min_corr=0.5, min_speed=0.02, d
 
     n_total, n_kept = mask.size, int(mask.sum())
 
+    attrs = {
+        "v_x_m_s":         v_x[mask].astype(float),
+        "v_y_m_s":         v_y[mask].astype(float),
+        "speed_m_s":       speed[mask].astype(float),
+        "bearing_deg_cwN": bearing[mask].astype(float),
+        "corr":            corr[mask].astype(float),
+        "s2n":             s2n[mask].astype(float),
+    }
+    for std_var, col in [("v_x_std", "v_x_std_m_s"),
+                         ("v_y_std", "v_y_std_m_s"),
+                         ("speed_std", "speed_std_m_s")]:
+        if std_var in ds_mean:
+            attrs[col] = ds_mean[std_var].values[mask].astype(float)
+
     gdf = gpd.GeoDataFrame(
-        {
-            "v_x_m_s":         v_x[mask].astype(float),
-            "v_y_m_s":         v_y[mask].astype(float),
-            "speed_m_s":       speed[mask].astype(float),
-            "bearing_deg_cwN": bearing[mask].astype(float),
-            "corr":            corr[mask].astype(float),
-            "s2n":             s2n[mask].astype(float),
-        },
+        attrs,
         geometry=[Point(xi, yi) for xi, yi in zip(xs[mask], ys[mask])],
         crs=crs,
     )
@@ -198,6 +212,7 @@ def _save_gpkg(ds_mean, output_dir, min_s2n=6.0, min_corr=0.5, min_speed=0.02, d
 
 def run_piv(video_path, output_dir, camera_config_path=None,
             start_frame=1, end_frame=None, h_a=0.0, piv_engine="numba",
+            window_size=None,
             min_s2n=6.0, min_corr=0.5, min_speed=0.02,
             dsm_path=None, water_elev_m=None):
     os.makedirs(output_dir, exist_ok=True)
@@ -231,11 +246,21 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     da_norm = da.frames.normalize()
     da_norm_proj = da_norm.frames.project(method="numpy")
 
-    piv = da_norm_proj.frames.get_piv(engine=piv_engine)
+    piv_kwargs = {"engine": piv_engine, "ensemble_corr": False}
+    if window_size is not None:
+        piv_kwargs["window_size"] = window_size  # int; pyORC expands to (n, n) internally
+    piv = da_norm_proj.frames.get_piv(**piv_kwargs)
 
     da_rgb = video.get_frames(method="rgb")
     da_rgb_proj = da_rgb.frames.project()
     ds_mean = piv.mean(dim="time", keep_attrs=True)
+
+    # Temporal std as per-cell uncertainty estimate
+    import xarray as xr
+    speed_all = np.sqrt(piv["v_x"]**2 + piv["v_y"]**2)
+    ds_mean["v_x_std"]    = piv["v_x"].std(dim="time")
+    ds_mean["v_y_std"]    = piv["v_y"].std(dim="time")
+    ds_mean["speed_std"]  = speed_all.std(dim="time")
 
     plt.figure()
     p = da_rgb_proj[0].frames.plot()
@@ -247,7 +272,6 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     plt.savefig(os.path.join(output_dir, "PIVquiverFrame.png"))
 
     # Build combined filter mask: quality thresholds + speed floor + optional DSM land mask
-    import xarray as xr
     speed_da = np.sqrt(ds_mean["v_x"]**2 + ds_mean["v_y"]**2)
     quality_mask = ((ds_mean["s2n"] >= min_s2n)
                     & (ds_mean["corr"] >= min_corr)
@@ -282,6 +306,7 @@ def main():
     parser.add_argument("--end-frame",      type=int, default=None)
     parser.add_argument("--h-a",            type=float, default=0.0,  help="Actual water level (m)")
     parser.add_argument("--piv-engine",     default="numba", choices=["numba", "opencv"])
+    parser.add_argument("--window-size",    type=int, default=None, help="PIV interrogation window size in pixels (default: pyORC default of 10)")
     parser.add_argument("--min-s2n",        type=float, default=6.0,  help="Min signal-to-noise for point filter (default: 6.0)")
     parser.add_argument("--min-corr",       type=float, default=0.5,  help="Min correlation for point filter (default: 0.5)")
     parser.add_argument("--min-speed",      type=float, default=0.02, help="Min speed (m/s) to include a vector (default: 0.02)")
@@ -297,6 +322,7 @@ def main():
         end_frame=args.end_frame,
         h_a=args.h_a,
         piv_engine=args.piv_engine,
+        window_size=args.window_size,
         min_s2n=args.min_s2n,
         min_corr=args.min_corr,
         min_speed=args.min_speed,
