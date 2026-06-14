@@ -167,10 +167,15 @@ def _save_geotiff(ds_mean, output_dir):
         ("s2n",             s2n),
     ]
     if has_std:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            cv_pct = np.where(speed > 1e-6,
+                              ds_mean["speed_std"].values / speed * 100.0,
+                              np.nan).astype("float32")
         bands_data += [
             ("speed_std_m_s", ds_mean["speed_std"].values),
             ("v_x_std_m_s",   ds_mean["v_x_std"].values),
             ("v_y_std_m_s",   ds_mean["v_y_std"].values),
+            ("speed_cv_pct",  cv_pct),
         ]
 
     bands = [
