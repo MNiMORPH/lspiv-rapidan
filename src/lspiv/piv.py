@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 # conda's PROJ C library (9.7+) ships a newer proj.db (layout v1.6) than pyproj
@@ -212,6 +213,110 @@ def _save_gpkg(ds_mean, output_dir, min_s2n=6.0, min_corr=0.5, min_speed=0.02, d
     print(f"Velocity GeoPackage saved to {path}  ({n_kept}/{n_total} points after filters)")
 
 
+def _make_frame_utm(frame_da, ds_mean, output_dir):
+    """Warp the projected frame to a north-up UTM GeoTIFF using GCPs + gdalwarp.
+
+    Fits an affine local→UTM transform from all PIV cell positions, extrapolates
+    it to the full projected-frame corners, embeds those as GCPs, and calls
+    gdalwarp to produce a regular north-up raster.
+
+    Returns the path to frame_utm.tif in output_dir.
+    """
+    from rasterio.control import GroundControlPoint
+
+    xs, ys = _utm_coords(ds_mean)
+    crs = _crs_from_ds(ds_mean)
+
+    # Normalise to (n_bands, ny, nx) uint8
+    arr = frame_da.values
+    if arr.ndim == 2:
+        arr = arr[np.newaxis]
+    elif arr.ndim == 3 and arr.shape[-1] in (1, 3, 4):   # channels-last → channels-first
+        arr = np.moveaxis(arr, -1, 0)
+    if arr.dtype != np.uint8:
+        lo, hi = float(arr.min()), float(arr.max())
+        scale = 255.0 / (hi - lo) if hi > lo else 1.0
+        arr = ((arr - lo) * scale).clip(0, 255).astype(np.uint8)
+    n_bands, ny_img, nx_img = arr.shape
+
+    # Fit affine local→UTM from all PIV cells (least-squares over full grid)
+    x_piv = ds_mean.x.values          # shape (nx_piv,)
+    y_piv = ds_mean.y.values          # shape (ny_piv,)
+    xx, yy = np.meshgrid(x_piv, y_piv)
+    A = np.column_stack([xx.ravel(), yy.ravel(), np.ones(xx.size)])
+    cx, _, _, _ = np.linalg.lstsq(A, xs.ravel(), rcond=None)
+    cy, _, _, _ = np.linalg.lstsq(A, ys.ravel(), rcond=None)
+
+    def _local_to_utm(x_l, y_l):
+        P = np.column_stack([np.ravel(x_l), np.ravel(y_l), np.ones(np.size(x_l))])
+        return (P @ cx).ravel(), (P @ cy).ravel()
+
+    # 4 corner GCPs: map frame pixel corners to UTM via the fitted transform
+    x_fr = frame_da.x.values          # 1-D local x, length nx_img
+    y_fr = frame_da.y.values          # 1-D local y, length ny_img
+    c_xl = [x_fr[0],  x_fr[-1], x_fr[0],  x_fr[-1]]
+    c_yl = [y_fr[0],  y_fr[0],  y_fr[-1], y_fr[-1]]
+    ux, uy = _local_to_utm(c_xl, c_yl)
+    rows   = [0,       0,        ny_img-1, ny_img-1]
+    cols   = [0,       nx_img-1, 0,        nx_img-1]
+    gcps   = [GroundControlPoint(row=r, col=c, x=float(ex), y=float(ey))
+              for r, c, ex, ey in zip(rows, cols, ux, uy)]
+
+    gcp_path    = os.path.join(output_dir, "_frame_gcp.tif")
+    warped_path = os.path.join(output_dir, "frame_utm.tif")
+    with rasterio.open(gcp_path, "w", driver="GTiff",
+                       height=ny_img, width=nx_img,
+                       count=n_bands, dtype="uint8") as dst:
+        dst.write(arr)
+        dst.gcps = (gcps, crs)    # rasterio 1.3+ property setter (replaces update_gcps)
+
+    subprocess.run(
+        ["gdalwarp", "-r", "bilinear", "-overwrite", gcp_path, warped_path],
+        check=True, capture_output=True,
+    )
+    os.remove(gcp_path)
+    print(f"Warped background frame saved to {warped_path}")
+    return warped_path
+
+
+def _save_plot_utm(ds_mean, frame_utm_path, output_dir,
+                   min_s2n=6.0, min_corr=0.5, min_speed=0.02, dsm_mask=None):
+    """Save a geographic quiver plot in UTM coordinates with the warped frame as background."""
+    from rasterio.plot import reshape_as_image
+
+    xs, ys = _utm_coords(ds_mean)
+    v_x, v_y, speed, _bearing, corr, s2n = _velocity_arrays(ds_mean)
+
+    mask = (s2n >= min_s2n) & (corr >= min_corr) & (speed >= min_speed)
+    if dsm_mask is not None:
+        mask = mask & dsm_mask
+
+    with rasterio.open(frame_utm_path) as src:
+        img = reshape_as_image(src.read())    # (ny, nx, bands)
+        ext = [src.bounds.left, src.bounds.right,
+               src.bounds.bottom, src.bounds.top]
+        n_bands = src.count
+
+    fig, ax = plt.subplots(figsize=(8, 10))
+    if n_bands >= 3:
+        ax.imshow(img[..., :3], extent=ext, origin="upper", aspect="equal")
+    else:
+        ax.imshow(img[..., 0], extent=ext, origin="upper", aspect="equal", cmap="gray")
+
+    q = ax.quiver(
+        xs[mask], ys[mask], v_x[mask], v_y[mask], speed[mask],
+        cmap="plasma", scale=1.0, scale_units="xy",
+    )
+    plt.colorbar(q, ax=ax, label="Speed (m/s)", shrink=0.7)
+    ax.set_xlabel("Easting (m)")
+    ax.set_ylabel("Northing (m)")
+    ax.ticklabel_format(style="plain", useOffset=False)
+    ax.set_aspect("equal")
+    plt.savefig(os.path.join(output_dir, "velocity_utm.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"UTM velocity plot saved to {output_dir}/velocity_utm.png")
+
+
 def run_piv(video_path, output_dir, camera_config_path=None,
             start_frame=1, end_frame=None, h_a=0.0, piv_engine="numba",
             window_size=None,
@@ -298,6 +403,11 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     _save_geotiff(ds_mean, output_dir)
     _save_gpkg(ds_mean, output_dir, min_s2n=min_s2n, min_corr=min_corr,
                min_speed=min_speed, dsm_mask=dsm_mask)
+
+    frame_utm_path = _make_frame_utm(da_rgb_proj[0], ds_mean, output_dir)
+    _save_plot_utm(ds_mean, frame_utm_path, output_dir,
+                   min_s2n=min_s2n, min_corr=min_corr, min_speed=min_speed,
+                   dsm_mask=dsm_mask)
 
 
 def main():

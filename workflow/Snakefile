@@ -19,7 +19,9 @@ rule all:
         expand(f"{RESULTS}/{{sample}}/PIVquiverFiltered.png", sample=SAMPLES),
         expand(f"{RESULTS}/{{sample}}/velocity.nc",           sample=SAMPLES),
         expand(f"{RESULTS}/{{sample}}/velocity.tif",          sample=SAMPLES),
-        expand(f"{RESULTS}/{{sample}}/velocity.gpkg",         sample=SAMPLES)
+        expand(f"{RESULTS}/{{sample}}/velocity.gpkg",         sample=SAMPLES),
+        expand(f"{RESULTS}/{{sample}}/frame_utm.tif",         sample=SAMPLES),
+        expand(f"{RESULTS}/{{sample}}/velocity_utm.png",      sample=SAMPLES)
 
 
 rule stabilize:
@@ -89,7 +91,9 @@ rule piv:
         piv_filtered    = RESULTS + "/{sample}/PIVquiverFiltered.png",
         netcdf          = RESULTS + "/{sample}/velocity.nc",
         geotiff         = RESULTS + "/{sample}/velocity.tif",
-        gpkg            = RESULTS + "/{sample}/velocity.gpkg"
+        gpkg            = RESULTS + "/{sample}/velocity.gpkg",
+        frame_utm       = RESULTS + "/{sample}/frame_utm.tif",
+        velocity_utm    = RESULTS + "/{sample}/velocity_utm.png"
     params:
         start_frame = config["piv"]["start_frame"],
         end_frame   = config["piv"].get("end_frame") or "",
