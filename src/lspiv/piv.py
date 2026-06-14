@@ -348,9 +348,9 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
                          cmap="plasma", norm=norm,
                          scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
 
-    def _arrows_black(ax):
+    def _arrows(ax, color):
         ax.quiver(xs[mask], ys[mask], v_x[mask], v_y[mask],
-                  color="white",
+                  color=color,
                   scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
 
     def _finish(fig, ax, mappable, fname):
@@ -378,7 +378,7 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
     fig, ax = plt.subplots(figsize=(10, 12))
     _bg(ax)
     pcm = _raster(ax)
-    _arrows_black(ax)
+    _arrows(ax, color="white")
     _finish(fig, ax, pcm, "velocity_raster_arrows_utm.png")
 
 
