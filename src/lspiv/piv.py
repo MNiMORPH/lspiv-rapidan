@@ -371,8 +371,8 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
                   color=color,
                   scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
 
-    def _finish(fig, ax, mappable, fname):
-        plt.colorbar(mappable, ax=ax, label="Speed (m/s)", shrink=0.7, extend="max")
+    def _finish(fig, ax, mappable, fname, cbar_label="Speed (m/s)"):
+        plt.colorbar(mappable, ax=ax, label=cbar_label, shrink=0.7, extend="max")
         ax.set_xlabel("Easting (m)")
         ax.set_ylabel("Northing (m)")
         ax.ticklabel_format(style="plain", useOffset=False)
@@ -382,6 +382,19 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
         plt.savefig(path, dpi=300, bbox_inches="tight", transparent=True)
         plt.close()
         print(f"Saved {path}")
+
+    # Uncertainty fields (require temporal std from ensemble_corr=False run)
+    has_std = "speed_std" in ds_mean
+    if has_std:
+        speed_std = ds_mean["speed_std"].values
+        with np.errstate(divide="ignore", invalid="ignore"):
+            cv = np.where(speed > 0, speed_std / speed * 100.0, np.nan)
+        std_raster = np.ma.array(speed_std, mask=~mask)
+        cv_raster  = np.ma.array(cv,        mask=~mask)
+        std_vmax = _nice_upper(float(np.nanpercentile(speed_std[mask], 99)))
+        cv_vmax  = min(_nice_upper(float(np.nanpercentile(cv[mask],    99))), 100.0)
+        std_norm = mcolors.Normalize(vmin=0.0, vmax=std_vmax)
+        cv_norm  = mcolors.Normalize(vmin=0.0, vmax=cv_vmax)
 
     # Figure 1: colored quiver on background frame
     fig, ax = plt.subplots(figsize=(10, 12))
@@ -393,12 +406,29 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
     _bg(ax)
     _finish(fig, ax, _raster(ax), "velocity_raster_utm.png")
 
-    # Figure 3: speed raster + black arrows on background frame
+    # Figure 3: speed raster + white arrows on background frame
     fig, ax = plt.subplots(figsize=(10, 12))
     _bg(ax)
     pcm = _raster(ax, alpha=0.7)
     _arrows(ax, color="white")
     _finish(fig, ax, pcm, "velocity_raster_arrows_utm.png")
+
+    if has_std:
+        # Figure 4: speed_std raster
+        fig, ax = plt.subplots(figsize=(10, 12))
+        _bg(ax)
+        pcm = ax.pcolormesh(xs, ys, std_raster, cmap="plasma", norm=std_norm,
+                            shading="nearest", zorder=2)
+        _finish(fig, ax, pcm, "velocity_std_utm.png",
+                cbar_label="Speed std dev (m/s)")
+
+        # Figure 5: CV of speed (%)
+        fig, ax = plt.subplots(figsize=(10, 12))
+        _bg(ax)
+        pcm = ax.pcolormesh(xs, ys, cv_raster, cmap="YlOrRd", norm=cv_norm,
+                            shading="nearest", zorder=2)
+        _finish(fig, ax, pcm, "velocity_cv_utm.png",
+                cbar_label="Speed CV (%)")
 
 
 def run_piv(video_path, output_dir, camera_config_path=None,
