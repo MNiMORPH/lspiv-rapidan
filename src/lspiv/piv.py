@@ -329,22 +329,25 @@ def _nice_upper(v):
     return float(np.ceil(v * 2.0)) / 2.0
 
 
-def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
-    """Generate UTM geographic figures showing the full (unfiltered) velocity field.
+def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None, filter_mask=None):
+    """Generate UTM geographic figures.
 
-    Only the land mask (from noisiness or DSM) is applied so end users can
-    screen quality themselves using the companion CV and std figures.  Quality
-    thresholds (s2n, corr, speed) are applied separately for GeoPackage output.
+    land_mask:   boolean (ny, nx) — cells classified as water by the noisiness
+                 criterion; applied to the full-field figures so end users can
+                 screen quality themselves using the companion CV/std figures.
+    filter_mask: boolean (ny, nx) — stricter quality filter (s2n + corr + speed
+                 + land mask); applied to the filtered raster+arrows figure.
 
-    Colorbar upper bound and arrow scale are derived automatically from the
-    data distribution so the plots adapt to different sites.
+    Colorbar upper bound and arrow scale are derived from the land-masked
+    distribution and shared across all figures for consistent comparison.
 
     Outputs:
-      velocity_utm.png               — background frame + colored quiver arrows
-      velocity_raster_utm.png        — background frame + speed raster
-      velocity_raster_arrows_utm.png — background frame + speed raster + white arrows
-      velocity_std_utm.png           — temporal std dev of speed
-      velocity_cv_utm.png            — coefficient of variation of speed (%)
+      velocity_utm.png                       — background + colored quiver (land-masked)
+      velocity_raster_utm.png                — background + speed raster (land-masked)
+      velocity_raster_arrows_utm.png         — background + raster + white arrows (land-masked)
+      velocity_raster_arrows_filtered_utm.png— background + raster + white arrows (quality-filtered)
+      velocity_std_utm.png                   — temporal std dev of speed
+      velocity_cv_utm.png                    — coefficient of variation of speed (%)
     """
     import matplotlib.colors as mcolors
     from rasterio.plot import reshape_as_image
@@ -433,12 +436,24 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
     _bg(ax)
     _finish(fig, ax, _raster(ax), "velocity_raster_utm.png")
 
-    # Figure 3: speed raster + white arrows on background frame
+    # Figure 3: speed raster + white arrows on background frame (land-masked)
     fig, ax = plt.subplots(figsize=(10, 12))
     _bg(ax)
     pcm = _raster(ax, alpha=0.7)
     _arrows(ax, color="white")
     _finish(fig, ax, pcm, "velocity_raster_arrows_utm.png")
+
+    # Figure 4: same layout but quality-filtered (s2n + corr + speed + land mask)
+    fmask = filter_mask if filter_mask is not None else mask
+    speed_raster_f = np.ma.array(speed, mask=~fmask)
+    fig, ax = plt.subplots(figsize=(10, 12))
+    _bg(ax)
+    pcm = ax.pcolormesh(xs, ys, speed_raster_f, cmap="plasma", norm=norm,
+                        shading="nearest", alpha=0.7, zorder=2)
+    ax.quiver(xs[fmask], ys[fmask], v_x[fmask], v_y[fmask],
+              color="white",
+              scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
+    _finish(fig, ax, pcm, "velocity_raster_arrows_filtered_utm.png")
 
     if has_std:
         # Figure 4: speed_std raster
@@ -548,7 +563,9 @@ def run_piv(video_path, output_dir, camera_config_path=None,
                min_speed=min_speed, land_mask=land_mask_np)
 
     frame_utm_path = _make_frame_utm(da_rgb_proj[0], ds_mean, output_dir)
-    _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=land_mask_np)
+    _save_plots_utm(ds_mean, frame_utm_path, output_dir,
+                    land_mask=land_mask_np,
+                    filter_mask=quality_mask.values)
 
 
 def main():
