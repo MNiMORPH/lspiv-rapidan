@@ -337,13 +337,13 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
                derived from the masked distribution and shared between the two
                variants for direct comparison.
 
-    Each figure type produces a *_utm.png (masked) and *_all_utm.png (all cells):
-      velocity_utm.png / velocity_all_utm.png             — colored quiver
-      velocity_raster_utm.png / velocity_raster_all_utm.png — speed raster
-      velocity_raster_arrows_utm.png / velocity_raster_arrows_all_utm.png
-                                                           — speed raster + white arrows
-      velocity_std_utm.png / velocity_std_all_utm.png     — temporal std dev of speed
-      velocity_cv_utm.png / velocity_cv_all_utm.png       — coefficient of variation (%)
+    Each figure type produces a *_utm.png (masked) and *_utm_all.png (all cells).
+    The _all suffix sorts immediately after the base name so pairs land adjacent:
+      velocity_utm.png / velocity_utm_all.png
+      velocity_raster_utm.png / velocity_raster_utm_all.png
+      velocity_raster_arrows_utm.png / velocity_raster_arrows_utm_all.png
+      velocity_std_utm.png / velocity_std_utm_all.png
+      velocity_cv_utm.png / velocity_cv_utm_all.png
     """
     import matplotlib.colors as mcolors
     from rasterio.plot import reshape_as_image
@@ -385,6 +385,9 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
         ax.set_ylabel("Northing (m)")
         ax.ticklabel_format(style="plain", useOffset=False)
         ax.set_aspect("equal")
+        # Pin spatial extent to the background frame so all figures overlap exactly
+        ax.set_xlim(ext[0], ext[1])
+        ax.set_ylim(ext[2], ext[3])
         ax.set_facecolor((0, 0, 0, 0))
         path = os.path.join(output_dir, fname)
         plt.savefig(path, dpi=300, bbox_inches="tight", transparent=True)
@@ -403,7 +406,7 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
         cv_norm  = mcolors.Normalize(vmin=0.0, vmax=cv_vmax)
 
     # Generate each figure type for both mask variants
-    for m, suffix in [(mask, "_utm.png"), (all_mask, "_all_utm.png")]:
+    for m, suffix in [(mask, "_utm.png"), (all_mask, "_utm_all.png")]:
         sr = np.ma.array(speed, mask=~m)
 
         # Colored quiver
