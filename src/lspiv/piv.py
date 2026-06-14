@@ -509,8 +509,6 @@ def run_piv(video_path, output_dir, camera_config_path=None,
         piv_kwargs["window_size"] = window_size  # int; pyORC expands to (n, n) internally
     piv = da_norm_proj.frames.get_piv(**piv_kwargs)
 
-    da_rgb = video.get_frames(method="rgb")
-    da_rgb_proj = da_rgb.frames.project()
     ds_mean = piv.mean(dim="time", keep_attrs=True)
 
     # Temporal std as per-cell uncertainty estimate
@@ -520,13 +518,22 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     ds_mean["v_y_std"]    = piv["v_y"].std(dim="time")
     ds_mean["speed_std"]  = speed_all.std(dim="time")
 
+    # Project only the two RGB frames we need: frame 0 for diagnostics, mid-frame
+    # for the UTM background.  Projecting the whole video at once loads every frame
+    # into memory (~14 GB for a 20 s / 600-frame clip at full resolution).
+    da_rgb = video.get_frames(method="rgb")
+    n_rgb  = int(da_rgb.shape[0])
+    mid_frame_idx = n_rgb // 2
+    frame0_proj   = da_rgb[0:1].frames.project()
+    frame_mid_proj = da_rgb[mid_frame_idx : mid_frame_idx + 1].frames.project()
+
     plt.figure()
-    p = da_rgb_proj[0].frames.plot()
+    p = frame0_proj[0].frames.plot()
     plt.savefig(os.path.join(output_dir, "Frame.png"), dpi=150, bbox_inches="tight")
     plt.close()
 
     plt.figure()
-    p = da_rgb_proj[0].frames.plot()
+    p = frame0_proj[0].frames.plot()
     ds_mean.velocimetry.plot(ax=p.axes)
     plt.savefig(os.path.join(output_dir, "PIVquiverFrame.png"), dpi=150, bbox_inches="tight")
     plt.close()
@@ -546,7 +553,7 @@ def run_piv(video_path, output_dir, camera_config_path=None,
 
     ds_filtered = ds_mean.where(quality_mask)
     plt.figure()
-    p = da_rgb_proj[0].frames.plot()
+    p = frame0_proj[0].frames.plot()
     ds_filtered.velocimetry.plot(ax=p.axes)
     plt.savefig(os.path.join(output_dir, "PIVquiverFiltered.png"), dpi=150, bbox_inches="tight")
     plt.close()
@@ -556,8 +563,7 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     _save_gpkg(ds_mean, output_dir, min_s2n=min_s2n, min_corr=min_corr,
                min_speed=min_speed, land_mask=land_mask_np)
 
-    mid_frame = len(da_rgb_proj) // 2
-    frame_utm_path = _make_frame_utm(da_rgb_proj[mid_frame], ds_mean, output_dir)
+    frame_utm_path = _make_frame_utm(frame_mid_proj[0], ds_mean, output_dir)
     _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=land_mask_np)
 
 
