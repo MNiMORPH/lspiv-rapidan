@@ -346,7 +346,10 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
       velocity_cv_utm.png / velocity_cv_utm_all.png
     """
     import matplotlib.colors as mcolors
+    from matplotlib_scalebar.scalebar import ScaleBar
     from rasterio.plot import reshape_as_image
+
+    clip_name = os.path.basename(os.path.normpath(output_dir))
 
     xs, ys = _utm_coords(ds_mean)
     v_x, v_y, speed, _bearing, corr, s2n = _velocity_arrays(ds_mean)
@@ -386,6 +389,7 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
         fig.subplots_adjust(left=0.12, right=0.80, top=0.97, bottom=0.08)
         cax = fig.add_axes([0.83, 0.15, 0.025, 0.70])
         fig.colorbar(mappable, cax=cax, label=cbar_label, extend="max")
+        ax.set_title(clip_name, fontsize=11)
         ax.set_xlabel("Easting (m)")
         ax.set_ylabel("Northing (m)")
         ax.ticklabel_format(style="plain", useOffset=False)
@@ -393,6 +397,8 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
         ax.set_xlim(ext[0], ext[1])
         ax.set_ylim(ext[2], ext[3])
         ax.set_facecolor((0, 0, 0, 0))
+        ax.add_artist(ScaleBar(1, units="m", location="lower right",
+                               color="white", box_color="black", box_alpha=0.5))
         path = os.path.join(output_dir, fname)
         fig.savefig(path, dpi=300, transparent=True)
         plt.close()
