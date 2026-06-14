@@ -106,6 +106,34 @@ def _dsm_water_mask(ds_mean, dsm_path, water_elev_m=None, elev_tolerance=0.5):
     return mask
 
 
+def _noisiness_mask(ds_mean, cv_threshold=100.0):
+    """Boolean (ny, nx) mask — True where motion is coherent (likely water).
+
+    Stationary land pixels produce PIV noise in all frames: mean speed ≈ noise
+    floor and temporal std ≈ same noise → coefficient of variation (CV) → very
+    large.  Coherent water flow has a meaningful mean speed and bounded CV.
+
+    cv_threshold: maximum allowed CV (%) to be classified as water.  Default
+    100 % works well for fast-flowing sites; raise for slow, turbulent reaches.
+
+    Falls back to an all-True mask when speed_std is not present in ds_mean.
+    """
+    if "speed_std" not in ds_mean:
+        print("Noisiness mask: speed_std not found; skipping (all cells kept)")
+        return np.ones(ds_mean["v_x"].shape, dtype=bool)
+
+    speed     = np.sqrt(ds_mean["v_x"].values**2 + ds_mean["v_y"].values**2)
+    speed_std = ds_mean["speed_std"].values
+    eps       = 1e-6
+    cv        = speed_std / np.maximum(speed, eps) * 100.0
+    mask      = cv < cv_threshold
+
+    n = int(np.sum(mask))
+    print(f"Noisiness mask (CV < {cv_threshold:.0f}%): "
+          f"{n}/{mask.size} cells kept as coherent motion")
+    return mask
+
+
 def _save_netcdf(ds_mean, output_dir):
     path = os.path.join(output_dir, "velocity.nc")
     ds_mean.to_netcdf(path)
@@ -177,14 +205,14 @@ def _save_geotiff(ds_mean, output_dir):
     print(f"Velocity GeoTIFF saved to {path}  ({len(bands)} bands: {[b[0] for b in bands]})")
 
 
-def _save_gpkg(ds_mean, output_dir, min_s2n=6.0, min_corr=0.5, min_speed=0.02, dsm_mask=None):
+def _save_gpkg(ds_mean, output_dir, min_s2n=6.0, min_corr=0.5, min_speed=0.02, land_mask=None):
     xs, ys = _utm_coords(ds_mean)
     v_x, v_y, speed, bearing, corr, s2n = _velocity_arrays(ds_mean)
     crs = _crs_from_ds(ds_mean)
 
     mask = (s2n >= min_s2n) & (corr >= min_corr) & (speed >= min_speed)
-    if dsm_mask is not None:
-        mask = mask & dsm_mask
+    if land_mask is not None:
+        mask = mask & land_mask
 
     n_total, n_kept = mask.size, int(mask.sum())
 
@@ -301,17 +329,12 @@ def _nice_upper(v):
     return float(np.ceil(v * 2.0)) / 2.0
 
 
-def _nice_upper(v):
-    """Round v up to the nearest 0.5-unit step (0.5, 1.0, 1.5, 2.0, …)."""
-    return float(np.ceil(v * 2.0)) / 2.0
-
-
-def _save_plots_utm(ds_mean, frame_utm_path, output_dir, dsm_mask=None):
+def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
     """Generate UTM geographic figures showing the full (unfiltered) velocity field.
 
-    Only the DSM land mask is applied so end users can screen quality
-    themselves using the companion CV and std figures. Quality thresholds
-    (s2n, corr, speed) are applied separately for the GeoPackage output.
+    Only the land mask (from noisiness or DSM) is applied so end users can
+    screen quality themselves using the companion CV and std figures.  Quality
+    thresholds (s2n, corr, speed) are applied separately for GeoPackage output.
 
     Colorbar upper bound and arrow scale are derived automatically from the
     data distribution so the plots adapt to different sites.
@@ -329,8 +352,8 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, dsm_mask=None):
     xs, ys = _utm_coords(ds_mean)
     v_x, v_y, speed, _bearing, corr, s2n = _velocity_arrays(ds_mean)
 
-    # DSM land mask only — quality screening is left to the end user
-    mask = dsm_mask if dsm_mask is not None else np.ones(speed.shape, dtype=bool)
+    # Land mask only — quality screening is left to the end user
+    mask = land_mask if land_mask is not None else np.ones(speed.shape, dtype=bool)
 
     speed_vals = speed[mask]
 
@@ -439,6 +462,7 @@ def run_piv(video_path, output_dir, camera_config_path=None,
             start_frame=1, end_frame=None, h_a=0.0, piv_engine="numba",
             window_size=None,
             min_s2n=6.0, min_corr=0.5, min_speed=0.02,
+            cv_threshold=100.0,
             dsm_path=None, water_elev_m=None):
     os.makedirs(output_dir, exist_ok=True)
 
@@ -498,17 +522,18 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     plt.savefig(os.path.join(output_dir, "PIVquiverFrame.png"), dpi=150, bbox_inches="tight")
     plt.close()
 
-    # Build combined filter mask: quality thresholds + speed floor + optional DSM land mask
+    # Land mask: noisiness criterion (primary), optionally combined with DSM
+    land_mask_np = _noisiness_mask(ds_mean, cv_threshold=cv_threshold)
+    if dsm_path is not None:
+        dsm_mask_np = _dsm_water_mask(ds_mean, dsm_path, water_elev_m)
+        land_mask_np = land_mask_np & dsm_mask_np
+
+    # Quality filter mask for the filtered quiver figure and GeoPackage
     speed_da = np.sqrt(ds_mean["v_x"]**2 + ds_mean["v_y"]**2)
     quality_mask = ((ds_mean["s2n"] >= min_s2n)
                     & (ds_mean["corr"] >= min_corr)
-                    & (speed_da >= min_speed))
-    dsm_mask = None
-    if dsm_path is not None:
-        dsm_mask_np = _dsm_water_mask(ds_mean, dsm_path, water_elev_m)
-        dsm_mask = dsm_mask_np
-        dsm_xr = xr.DataArray(dsm_mask_np, dims=["y", "x"])
-        quality_mask = quality_mask & dsm_xr
+                    & (speed_da >= min_speed)
+                    & xr.DataArray(land_mask_np, dims=["y", "x"]))
 
     ds_filtered = ds_mean.where(quality_mask)
     plt.figure()
@@ -520,10 +545,10 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     _save_netcdf(ds_mean, output_dir)
     _save_geotiff(ds_mean, output_dir)
     _save_gpkg(ds_mean, output_dir, min_s2n=min_s2n, min_corr=min_corr,
-               min_speed=min_speed, dsm_mask=dsm_mask)
+               min_speed=min_speed, land_mask=land_mask_np)
 
     frame_utm_path = _make_frame_utm(da_rgb_proj[0], ds_mean, output_dir)
-    _save_plots_utm(ds_mean, frame_utm_path, output_dir, dsm_mask=dsm_mask)
+    _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=land_mask_np)
 
 
 def main():
@@ -539,7 +564,10 @@ def main():
     parser.add_argument("--min-s2n",        type=float, default=6.0,  help="Min signal-to-noise for point filter (default: 6.0)")
     parser.add_argument("--min-corr",       type=float, default=0.5,  help="Min correlation for point filter (default: 0.5)")
     parser.add_argument("--min-speed",      type=float, default=0.02, help="Min speed (m/s) to include a vector (default: 0.02)")
-    parser.add_argument("--dsm",            default=None,   help="DSM GeoTIFF for land/water masking")
+    parser.add_argument("--cv-threshold",   type=float, default=100.0,
+                        help="Max coefficient of variation (%%) to classify a cell as water; "
+                             "high-CV cells are treated as stationary land (default: 100)")
+    parser.add_argument("--dsm",            default=None,   help="DSM GeoTIFF for land/water masking (optional, secondary to CV criterion)")
     parser.add_argument("--water-elev-m",   type=float, default=None, help="Water surface elevation (m); auto-detected from DSM if omitted")
     args = parser.parse_args()
 
@@ -555,6 +583,7 @@ def main():
         min_s2n=args.min_s2n,
         min_corr=args.min_corr,
         min_speed=args.min_speed,
+        cv_threshold=args.cv_threshold,
         dsm_path=args.dsm,
         water_elev_m=args.water_elev_m,
     )
