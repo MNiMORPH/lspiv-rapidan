@@ -23,7 +23,8 @@ rule all:
         expand(f"{RESULTS}/{{sample}}/frame_utm.tif",                    sample=SAMPLES),
         expand(f"{RESULTS}/{{sample}}/velocity_utm.png",               sample=SAMPLES),
         expand(f"{RESULTS}/{{sample}}/velocity_raster_utm.png",        sample=SAMPLES),
-        expand(f"{RESULTS}/{{sample}}/velocity_raster_arrows_utm.png", sample=SAMPLES),
+        expand(f"{RESULTS}/{{sample}}/velocity_raster_arrows_utm.png",          sample=SAMPLES),
+        expand(f"{RESULTS}/{{sample}}/velocity_raster_arrows_filtered_utm.png", sample=SAMPLES),
         expand(f"{RESULTS}/{{sample}}/velocity_std_utm.png",           sample=SAMPLES),
         expand(f"{RESULTS}/{{sample}}/velocity_cv_utm.png",            sample=SAMPLES)
 
@@ -99,7 +100,8 @@ rule piv:
         frame_utm              = RESULTS + "/{sample}/frame_utm.tif",
         velocity_utm           = RESULTS + "/{sample}/velocity_utm.png",
         velocity_raster_utm    = RESULTS + "/{sample}/velocity_raster_utm.png",
-        velocity_raster_arrows = RESULTS + "/{sample}/velocity_raster_arrows_utm.png",
+        velocity_raster_arrows          = RESULTS + "/{sample}/velocity_raster_arrows_utm.png",
+        velocity_raster_arrows_filtered = RESULTS + "/{sample}/velocity_raster_arrows_filtered_utm.png",
         velocity_std_utm       = RESULTS + "/{sample}/velocity_std_utm.png",
         velocity_cv_utm        = RESULTS + "/{sample}/velocity_cv_utm.png"
     params:
