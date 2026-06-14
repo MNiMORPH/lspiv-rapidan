@@ -297,7 +297,7 @@ def _save_plot_utm(ds_mean, frame_utm_path, output_dir,
                src.bounds.bottom, src.bounds.top]
         n_bands = src.count
 
-    fig, ax = plt.subplots(figsize=(8, 10))
+    fig, ax = plt.subplots(figsize=(10, 12))
     if n_bands >= 3:
         ax.imshow(img[..., :3], extent=ext, origin="upper", aspect="equal")
     else:
@@ -305,14 +305,14 @@ def _save_plot_utm(ds_mean, frame_utm_path, output_dir,
 
     q = ax.quiver(
         xs[mask], ys[mask], v_x[mask], v_y[mask], speed[mask],
-        cmap="plasma", scale=1.0, scale_units="xy",
+        cmap="plasma", scale=5.0, scale_units="xy",
     )
     plt.colorbar(q, ax=ax, label="Speed (m/s)", shrink=0.7)
     ax.set_xlabel("Easting (m)")
     ax.set_ylabel("Northing (m)")
     ax.ticklabel_format(style="plain", useOffset=False)
     ax.set_aspect("equal")
-    plt.savefig(os.path.join(output_dir, "velocity_utm.png"), dpi=150, bbox_inches="tight")
+    plt.savefig(os.path.join(output_dir, "velocity_utm.png"), dpi=300, bbox_inches="tight")
     plt.close()
     print(f"UTM velocity plot saved to {output_dir}/velocity_utm.png")
 
