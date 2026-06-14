@@ -329,23 +329,22 @@ def _nice_upper(v):
     return float(np.ceil(v * 2.0)) / 2.0
 
 
-def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None, filter_mask=None):
+def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
     """Generate UTM geographic figures.
 
-    land_mask:   boolean (ny, nx) — cells classified as water by the noisiness
-                 criterion; applied to the full-field figures so end users can
-                 screen quality themselves using the companion CV/std figures.
-    filter_mask: boolean (ny, nx) — stricter quality filter (s2n + corr + speed
-                 + land mask); applied to the filtered raster+arrows figure.
+    land_mask: boolean (ny, nx) — cells classified as water by the noisiness
+               criterion; applied to the masked figures so end users can screen
+               quality themselves using the companion CV/std figures.
 
     Colorbar upper bound and arrow scale are derived from the land-masked
     distribution and shared across all figures for consistent comparison.
 
     Outputs:
       velocity_utm.png                       — background + colored quiver (land-masked)
+      velocity_utm_all.png                   — background + colored quiver (all cells, no mask)
       velocity_raster_utm.png                — background + speed raster (land-masked)
       velocity_raster_arrows_utm.png         — background + raster + white arrows (land-masked)
-      velocity_raster_arrows_filtered_utm.png— background + raster + white arrows (quality-filtered)
+      velocity_raster_arrows_all_utm.png     — background + raster + white arrows (all cells, no mask)
       velocity_std_utm.png                   — temporal std dev of speed
       velocity_cv_utm.png                    — coefficient of variation of speed (%)
     """
@@ -443,17 +442,25 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None, filter_
     _arrows(ax, color="white")
     _finish(fig, ax, pcm, "velocity_raster_arrows_utm.png")
 
-    # Figure 4: same layout but quality-filtered (s2n + corr + speed + land mask)
-    fmask = filter_mask if filter_mask is not None else mask
-    speed_raster_f = np.ma.array(speed, mask=~fmask)
+    # Unmasked figures: all PIV cells, no land or quality filtering
+    all_mask = np.ones(speed.shape, dtype=bool)
+    speed_raster_all = np.ma.array(speed, mask=~all_mask)
+
     fig, ax = plt.subplots(figsize=(10, 12))
     _bg(ax)
-    pcm = ax.pcolormesh(xs, ys, speed_raster_f, cmap="plasma", norm=norm,
+    q = ax.quiver(xs, ys, v_x, v_y, speed,
+                  cmap="plasma", norm=norm,
+                  scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
+    _finish(fig, ax, q, "velocity_utm_all.png")
+
+    fig, ax = plt.subplots(figsize=(10, 12))
+    _bg(ax)
+    pcm = ax.pcolormesh(xs, ys, speed_raster_all, cmap="plasma", norm=norm,
                         shading="nearest", alpha=0.7, zorder=2)
-    ax.quiver(xs[fmask], ys[fmask], v_x[fmask], v_y[fmask],
+    ax.quiver(xs, ys, v_x, v_y,
               color="white",
               scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
-    _finish(fig, ax, pcm, "velocity_raster_arrows_filtered_utm.png")
+    _finish(fig, ax, pcm, "velocity_raster_arrows_all_utm.png")
 
     if has_std:
         # Figure 4: speed_std raster
@@ -563,9 +570,7 @@ def run_piv(video_path, output_dir, camera_config_path=None,
                min_speed=min_speed, land_mask=land_mask_np)
 
     frame_utm_path = _make_frame_utm(da_rgb_proj[0], ds_mean, output_dir)
-    _save_plots_utm(ds_mean, frame_utm_path, output_dir,
-                    land_mask=land_mask_np,
-                    filter_mask=quality_mask.values)
+    _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=land_mask_np)
 
 
 def main():
