@@ -565,7 +565,8 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     _save_gpkg(ds_mean, output_dir, min_s2n=min_s2n, min_corr=min_corr,
                min_speed=min_speed, land_mask=land_mask_np)
 
-    frame_utm_path = _make_frame_utm(da_rgb_proj[0], ds_mean, output_dir)
+    mid_frame = len(da_rgb_proj) // 2
+    frame_utm_path = _make_frame_utm(da_rgb_proj[mid_frame], ds_mean, output_dir)
     _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=land_mask_np)
 
 
