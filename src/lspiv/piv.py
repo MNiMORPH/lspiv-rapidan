@@ -284,12 +284,22 @@ def _nice_upper(v):
     return float(np.ceil(v * 2.0)) / 2.0
 
 
-def _save_plot_utm(ds_mean, frame_utm_path, output_dir,
-                   min_s2n=6.0, min_corr=0.5, min_speed=0.02, dsm_mask=None):
-    """Save a geographic quiver plot in UTM coordinates with the warped frame as background.
+def _nice_upper(v):
+    """Round v up to the nearest 0.5-unit step (0.5, 1.0, 1.5, 2.0, …)."""
+    return float(np.ceil(v * 2.0)) / 2.0
 
-    Colorbar upper bound and arrow scale are derived automatically from the filtered
-    speed distribution so the plot adapts to different sites and flow regimes.
+
+def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
+                    min_s2n=6.0, min_corr=0.5, min_speed=0.02, dsm_mask=None):
+    """Generate three UTM geographic figures sharing the same scale settings.
+
+    Colorbar upper bound and arrow scale are derived automatically from the
+    filtered speed distribution so the plots adapt to different sites.
+
+    Outputs:
+      velocity_utm.png              — background frame + colored quiver arrows
+      velocity_raster_utm.png       — background frame + speed raster (no arrows)
+      velocity_raster_arrows_utm.png— background frame + speed raster + black arrows
     """
     import matplotlib.colors as mcolors
     from rasterio.plot import reshape_as_image
@@ -303,15 +313,16 @@ def _save_plot_utm(ds_mean, frame_utm_path, output_dir,
 
     speed_vals = speed[mask]
 
-    # Colorbar: 0 → nice ceiling of 99th-percentile speed (clips outliers cleanly)
+    # Shared scale: colorbar 0 → nice ceiling of 99th-percentile speed
     vmax = _nice_upper(float(np.nanpercentile(speed_vals, 99))) if speed_vals.size else 5.0
+    norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
 
     # Arrow scale: 95th-percentile arrow fits in 80% of one PIV cell
     cell_spacing = float(abs(ds_mean.x.values[1] - ds_mean.x.values[0]))
     speed_p95 = float(np.nanpercentile(speed_vals, 95)) if speed_vals.size else 1.0
     arrow_scale = speed_p95 / (0.8 * cell_spacing)
 
-    print(f"UTM plot: vmax={vmax:.1f} m/s  arrow_scale={arrow_scale:.2f}  "
+    print(f"UTM plots: vmax={vmax:.1f} m/s  arrow_scale={arrow_scale:.2f}  "
           f"cell_spacing={cell_spacing:.2f} m")
 
     with rasterio.open(frame_utm_path) as src:
@@ -320,27 +331,55 @@ def _save_plot_utm(ds_mean, frame_utm_path, output_dir,
                src.bounds.bottom, src.bounds.top]
         n_bands = src.count
 
-    fig, ax = plt.subplots(figsize=(10, 12))
-    if n_bands >= 3:
-        ax.imshow(img[..., :3], extent=ext, origin="upper", aspect="equal")
-    else:
-        ax.imshow(img[..., 0], extent=ext, origin="upper", aspect="equal", cmap="gray")
+    speed_raster = np.ma.array(speed, mask=~mask)
 
-    norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
-    q = ax.quiver(
-        xs[mask], ys[mask], v_x[mask], v_y[mask], speed[mask],
-        cmap="plasma", norm=norm,
-        scale=arrow_scale, scale_units="xy",
-        width=0.0012,
-    )
-    plt.colorbar(q, ax=ax, label="Speed (m/s)", shrink=0.7, extend="max")
-    ax.set_xlabel("Easting (m)")
-    ax.set_ylabel("Northing (m)")
-    ax.ticklabel_format(style="plain", useOffset=False)
-    ax.set_aspect("equal")
-    plt.savefig(os.path.join(output_dir, "velocity_utm.png"), dpi=300, bbox_inches="tight")
-    plt.close()
-    print(f"UTM velocity plot saved to {output_dir}/velocity_utm.png")
+    def _bg(ax):
+        if n_bands >= 3:
+            ax.imshow(img[..., :3], extent=ext, origin="upper", aspect="equal")
+        else:
+            ax.imshow(img[..., 0], extent=ext, origin="upper", aspect="equal", cmap="gray")
+
+    def _raster(ax):
+        return ax.pcolormesh(xs, ys, speed_raster, cmap="plasma", norm=norm,
+                             shading="nearest", zorder=2)
+
+    def _arrows_colored(ax):
+        return ax.quiver(xs[mask], ys[mask], v_x[mask], v_y[mask], speed[mask],
+                         cmap="plasma", norm=norm,
+                         scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
+
+    def _arrows_black(ax):
+        ax.quiver(xs[mask], ys[mask], v_x[mask], v_y[mask],
+                  color="black",
+                  scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
+
+    def _finish(fig, ax, mappable, fname):
+        plt.colorbar(mappable, ax=ax, label="Speed (m/s)", shrink=0.7, extend="max")
+        ax.set_xlabel("Easting (m)")
+        ax.set_ylabel("Northing (m)")
+        ax.ticklabel_format(style="plain", useOffset=False)
+        ax.set_aspect("equal")
+        path = os.path.join(output_dir, fname)
+        plt.savefig(path, dpi=300, bbox_inches="tight")
+        plt.close()
+        print(f"Saved {path}")
+
+    # Figure 1: colored quiver on background frame
+    fig, ax = plt.subplots(figsize=(10, 12))
+    _bg(ax)
+    _finish(fig, ax, _arrows_colored(ax), "velocity_utm.png")
+
+    # Figure 2: speed raster on background frame
+    fig, ax = plt.subplots(figsize=(10, 12))
+    _bg(ax)
+    _finish(fig, ax, _raster(ax), "velocity_raster_utm.png")
+
+    # Figure 3: speed raster + black arrows on background frame
+    fig, ax = plt.subplots(figsize=(10, 12))
+    _bg(ax)
+    pcm = _raster(ax)
+    _arrows_black(ax)
+    _finish(fig, ax, pcm, "velocity_raster_arrows_utm.png")
 
 
 def run_piv(video_path, output_dir, camera_config_path=None,
@@ -431,9 +470,9 @@ def run_piv(video_path, output_dir, camera_config_path=None,
                min_speed=min_speed, dsm_mask=dsm_mask)
 
     frame_utm_path = _make_frame_utm(da_rgb_proj[0], ds_mean, output_dir)
-    _save_plot_utm(ds_mean, frame_utm_path, output_dir,
-                   min_s2n=min_s2n, min_corr=min_corr, min_speed=min_speed,
-                   dsm_mask=dsm_mask)
+    _save_plots_utm(ds_mean, frame_utm_path, output_dir,
+                    min_s2n=min_s2n, min_corr=min_corr, min_speed=min_speed,
+                    dsm_mask=dsm_mask)
 
 
 def main():
