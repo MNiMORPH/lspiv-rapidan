@@ -234,6 +234,13 @@ def _save_gpkg(ds_mean, output_dir, min_s2n=6.0, min_corr=0.5, min_speed=0.02, l
                          ("speed_std", "speed_std_m_s")]:
         if std_var in ds_mean:
             attrs[col] = ds_mean[std_var].values[mask].astype(float)
+    if "speed_std" in ds_mean:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            attrs["speed_cv_pct"] = np.where(
+                speed[mask] > 1e-6,
+                ds_mean["speed_std"].values[mask] / speed[mask] * 100.0,
+                np.nan,
+            ).astype(float)
 
     gdf = gpd.GeoDataFrame(
         attrs,
