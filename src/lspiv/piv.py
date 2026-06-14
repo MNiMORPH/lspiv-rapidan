@@ -306,6 +306,7 @@ def _save_plot_utm(ds_mean, frame_utm_path, output_dir,
     q = ax.quiver(
         xs[mask], ys[mask], v_x[mask], v_y[mask], speed[mask],
         cmap="plasma", scale=5.0, scale_units="xy",
+        width=0.002,
     )
     plt.colorbar(q, ax=ax, label="Speed (m/s)", shrink=0.7)
     ax.set_xlabel("Easting (m)")
