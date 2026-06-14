@@ -35,5 +35,7 @@ piv:
   min_s2n:     6.0     # signal-to-noise threshold
   min_corr:    0.5     # cross-correlation threshold
   min_speed:   0.02    # minimum speed (m/s); removes true-zero noise cells only
-  dsm:         data/dsm.tif   # DSM GeoTIFF for land/water masking (not tracked in git)
-  water_elev_m:                # water surface elevation (m); auto-detected if blank
+  cv_threshold: 100.0  # max coefficient of variation (%) to classify a cell as water
+                       # stationary land → very high CV; coherent flow → low CV
+  # dsm:               # optional DSM GeoTIFF (secondary to CV criterion)
+  # water_elev_m:      # water surface elevation (m); auto-detected from DSM if blank
