@@ -330,23 +330,20 @@ def _nice_upper(v):
 
 
 def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
-    """Generate UTM geographic figures.
+    """Generate UTM geographic figures in two variants each: noise-masked and full domain.
 
-    land_mask: boolean (ny, nx) — cells classified as water by the noisiness
-               criterion; applied to the masked figures so end users can screen
-               quality themselves using the companion CV/std figures.
+    land_mask: boolean (ny, nx) — True for cells classified as water by the
+               noisiness criterion.  Scale (colorbar range, arrow size) is
+               derived from the masked distribution and shared between the two
+               variants for direct comparison.
 
-    Colorbar upper bound and arrow scale are derived from the land-masked
-    distribution and shared across all figures for consistent comparison.
-
-    Outputs:
-      velocity_utm.png                       — background + colored quiver (land-masked)
-      velocity_utm_all.png                   — background + colored quiver (all cells, no mask)
-      velocity_raster_utm.png                — background + speed raster (land-masked)
-      velocity_raster_arrows_utm.png         — background + raster + white arrows (land-masked)
-      velocity_raster_arrows_all_utm.png     — background + raster + white arrows (all cells, no mask)
-      velocity_std_utm.png                   — temporal std dev of speed
-      velocity_cv_utm.png                    — coefficient of variation of speed (%)
+    Each figure type produces a *_utm.png (masked) and *_all_utm.png (all cells):
+      velocity_utm.png / velocity_all_utm.png             — colored quiver
+      velocity_raster_utm.png / velocity_raster_all_utm.png — speed raster
+      velocity_raster_arrows_utm.png / velocity_raster_arrows_all_utm.png
+                                                           — speed raster + white arrows
+      velocity_std_utm.png / velocity_std_all_utm.png     — temporal std dev of speed
+      velocity_cv_utm.png / velocity_cv_all_utm.png       — coefficient of variation (%)
     """
     import matplotlib.colors as mcolors
     from rasterio.plot import reshape_as_image
@@ -354,51 +351,33 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
     xs, ys = _utm_coords(ds_mean)
     v_x, v_y, speed, _bearing, corr, s2n = _velocity_arrays(ds_mean)
 
-    # Land mask only — quality screening is left to the end user
-    mask = land_mask if land_mask is not None else np.ones(speed.shape, dtype=bool)
+    mask     = land_mask if land_mask is not None else np.ones(speed.shape, dtype=bool)
+    all_mask = np.ones(speed.shape, dtype=bool)
 
     speed_vals = speed[mask]
 
-    # Shared scale: colorbar 0 → nice ceiling of 99th-percentile speed
+    # Scale derived from masked (water) cells — shared by both variants
     vmax = _nice_upper(float(np.nanpercentile(speed_vals, 99))) if speed_vals.size else 5.0
     norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
 
-    # Arrow scale: 95th-percentile arrow fits in 80% of one PIV cell
     cell_spacing = float(abs(ds_mean.x.values[1] - ds_mean.x.values[0]))
-    speed_p95 = float(np.nanpercentile(speed_vals, 95)) if speed_vals.size else 1.0
-    arrow_scale = speed_p95 / (0.8 * cell_spacing)
+    speed_p95    = float(np.nanpercentile(speed_vals, 95)) if speed_vals.size else 1.0
+    arrow_scale  = speed_p95 / (0.8 * cell_spacing)
 
     print(f"UTM plots: vmax={vmax:.1f} m/s  arrow_scale={arrow_scale:.2f}  "
           f"cell_spacing={cell_spacing:.2f} m")
 
     with rasterio.open(frame_utm_path) as src:
-        img = reshape_as_image(src.read())    # (ny, nx, bands)
-        ext = [src.bounds.left, src.bounds.right,
-               src.bounds.bottom, src.bounds.top]
+        img     = reshape_as_image(src.read())
+        ext     = [src.bounds.left, src.bounds.right,
+                   src.bounds.bottom, src.bounds.top]
         n_bands = src.count
 
-    speed_raster = np.ma.array(speed, mask=~mask)
-
     def _bg(ax):
-        # Use RGBA (4 bands) when available so nodata corners are transparent
         if n_bands >= 3:
             ax.imshow(img[..., :n_bands], extent=ext, origin="upper", aspect="equal")
         else:
             ax.imshow(img[..., 0], extent=ext, origin="upper", aspect="equal", cmap="gray")
-
-    def _raster(ax, alpha=1.0):
-        return ax.pcolormesh(xs, ys, speed_raster, cmap="plasma", norm=norm,
-                             shading="nearest", alpha=alpha, zorder=2)
-
-    def _arrows_colored(ax):
-        return ax.quiver(xs[mask], ys[mask], v_x[mask], v_y[mask], speed[mask],
-                         cmap="plasma", norm=norm,
-                         scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
-
-    def _arrows(ax, color):
-        ax.quiver(xs[mask], ys[mask], v_x[mask], v_y[mask],
-                  color=color,
-                  scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
 
     def _finish(fig, ax, mappable, fname, cbar_label="Speed (m/s)"):
         plt.colorbar(mappable, ax=ax, label=cbar_label, shrink=0.7, extend="max")
@@ -418,66 +397,58 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
         speed_std = ds_mean["speed_std"].values
         with np.errstate(divide="ignore", invalid="ignore"):
             cv = np.where(speed > 0, speed_std / speed * 100.0, np.nan)
-        std_raster = np.ma.array(speed_std, mask=~mask)
-        cv_raster  = np.ma.array(cv,        mask=~mask)
         std_vmax = _nice_upper(float(np.nanpercentile(speed_std[mask], 99)))
         cv_vmax  = min(_nice_upper(float(np.nanpercentile(cv[mask],    99))), 100.0)
         std_norm = mcolors.Normalize(vmin=0.0, vmax=std_vmax)
         cv_norm  = mcolors.Normalize(vmin=0.0, vmax=cv_vmax)
 
-    # Figure 1: colored quiver on background frame
-    fig, ax = plt.subplots(figsize=(10, 12))
-    _bg(ax)
-    _finish(fig, ax, _arrows_colored(ax), "velocity_utm.png")
+    # Generate each figure type for both mask variants
+    for m, suffix in [(mask, "_utm.png"), (all_mask, "_all_utm.png")]:
+        sr = np.ma.array(speed, mask=~m)
 
-    # Figure 2: speed raster on background frame
-    fig, ax = plt.subplots(figsize=(10, 12))
-    _bg(ax)
-    _finish(fig, ax, _raster(ax), "velocity_raster_utm.png")
+        # Colored quiver
+        fig, ax = plt.subplots(figsize=(10, 12))
+        _bg(ax)
+        q = ax.quiver(xs[m], ys[m], v_x[m], v_y[m], speed[m],
+                      cmap="plasma", norm=norm,
+                      scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
+        _finish(fig, ax, q, f"velocity{suffix}")
 
-    # Figure 3: speed raster + white arrows on background frame (land-masked)
-    fig, ax = plt.subplots(figsize=(10, 12))
-    _bg(ax)
-    pcm = _raster(ax, alpha=0.7)
-    _arrows(ax, color="white")
-    _finish(fig, ax, pcm, "velocity_raster_arrows_utm.png")
+        # Speed raster
+        fig, ax = plt.subplots(figsize=(10, 12))
+        _bg(ax)
+        pcm = ax.pcolormesh(xs, ys, sr, cmap="plasma", norm=norm,
+                            shading="nearest", zorder=2)
+        _finish(fig, ax, pcm, f"velocity_raster{suffix}")
 
-    # Unmasked figures: all PIV cells, no land or quality filtering
-    all_mask = np.ones(speed.shape, dtype=bool)
-    speed_raster_all = np.ma.array(speed, mask=~all_mask)
-
-    fig, ax = plt.subplots(figsize=(10, 12))
-    _bg(ax)
-    q = ax.quiver(xs, ys, v_x, v_y, speed,
-                  cmap="plasma", norm=norm,
+        # Speed raster + white arrows
+        fig, ax = plt.subplots(figsize=(10, 12))
+        _bg(ax)
+        pcm = ax.pcolormesh(xs, ys, sr, cmap="plasma", norm=norm,
+                            shading="nearest", alpha=0.7, zorder=2)
+        ax.quiver(xs[m], ys[m], v_x[m], v_y[m],
+                  color="white",
                   scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
-    _finish(fig, ax, q, "velocity_utm_all.png")
+        _finish(fig, ax, pcm, f"velocity_raster_arrows{suffix}")
 
-    fig, ax = plt.subplots(figsize=(10, 12))
-    _bg(ax)
-    pcm = ax.pcolormesh(xs, ys, speed_raster_all, cmap="plasma", norm=norm,
-                        shading="nearest", alpha=0.7, zorder=2)
-    ax.quiver(xs, ys, v_x, v_y,
-              color="white",
-              scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
-    _finish(fig, ax, pcm, "velocity_raster_arrows_all_utm.png")
+        if has_std:
+            # Std dev raster
+            fig, ax = plt.subplots(figsize=(10, 12))
+            _bg(ax)
+            pcm = ax.pcolormesh(xs, ys, np.ma.array(speed_std, mask=~m),
+                                cmap="plasma", norm=std_norm,
+                                shading="nearest", zorder=2)
+            _finish(fig, ax, pcm, f"velocity_std{suffix}",
+                    cbar_label="Speed std dev (m/s)")
 
-    if has_std:
-        # Figure 4: speed_std raster
-        fig, ax = plt.subplots(figsize=(10, 12))
-        _bg(ax)
-        pcm = ax.pcolormesh(xs, ys, std_raster, cmap="plasma", norm=std_norm,
-                            shading="nearest", zorder=2)
-        _finish(fig, ax, pcm, "velocity_std_utm.png",
-                cbar_label="Speed std dev (m/s)")
-
-        # Figure 5: CV of speed (%)
-        fig, ax = plt.subplots(figsize=(10, 12))
-        _bg(ax)
-        pcm = ax.pcolormesh(xs, ys, cv_raster, cmap="YlOrRd", norm=cv_norm,
-                            shading="nearest", zorder=2)
-        _finish(fig, ax, pcm, "velocity_cv_utm.png",
-                cbar_label="Speed CV (%)")
+            # CV raster
+            fig, ax = plt.subplots(figsize=(10, 12))
+            _bg(ax)
+            pcm = ax.pcolormesh(xs, ys, np.ma.array(cv, mask=~m),
+                                cmap="YlOrRd", norm=cv_norm,
+                                shading="nearest", zorder=2)
+            _finish(fig, ax, pcm, f"velocity_cv{suffix}",
+                    cbar_label="Speed CV (%)")
 
 
 def run_piv(video_path, output_dir, camera_config_path=None,
