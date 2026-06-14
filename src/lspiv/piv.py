@@ -339,9 +339,9 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
         else:
             ax.imshow(img[..., 0], extent=ext, origin="upper", aspect="equal", cmap="gray")
 
-    def _raster(ax):
+    def _raster(ax, alpha=1.0):
         return ax.pcolormesh(xs, ys, speed_raster, cmap="plasma", norm=norm,
-                             shading="nearest", zorder=2)
+                             shading="nearest", alpha=alpha, zorder=2)
 
     def _arrows_colored(ax):
         return ax.quiver(xs[mask], ys[mask], v_x[mask], v_y[mask], speed[mask],
@@ -377,7 +377,7 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
     # Figure 3: speed raster + black arrows on background frame
     fig, ax = plt.subplots(figsize=(10, 12))
     _bg(ax)
-    pcm = _raster(ax)
+    pcm = _raster(ax, alpha=0.7)
     _arrows(ax, color="white")
     _finish(fig, ax, pcm, "velocity_raster_arrows_utm.png")
 
