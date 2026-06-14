@@ -306,17 +306,22 @@ def _nice_upper(v):
     return float(np.ceil(v * 2.0)) / 2.0
 
 
-def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
-                    min_s2n=6.0, min_corr=0.5, min_speed=0.02, dsm_mask=None):
-    """Generate three UTM geographic figures sharing the same scale settings.
+def _save_plots_utm(ds_mean, frame_utm_path, output_dir, dsm_mask=None):
+    """Generate UTM geographic figures showing the full (unfiltered) velocity field.
+
+    Only the DSM land mask is applied so end users can screen quality
+    themselves using the companion CV and std figures. Quality thresholds
+    (s2n, corr, speed) are applied separately for the GeoPackage output.
 
     Colorbar upper bound and arrow scale are derived automatically from the
-    filtered speed distribution so the plots adapt to different sites.
+    data distribution so the plots adapt to different sites.
 
     Outputs:
-      velocity_utm.png              — background frame + colored quiver arrows
-      velocity_raster_utm.png       — background frame + speed raster (no arrows)
-      velocity_raster_arrows_utm.png— background frame + speed raster + black arrows
+      velocity_utm.png               — background frame + colored quiver arrows
+      velocity_raster_utm.png        — background frame + speed raster
+      velocity_raster_arrows_utm.png — background frame + speed raster + white arrows
+      velocity_std_utm.png           — temporal std dev of speed
+      velocity_cv_utm.png            — coefficient of variation of speed (%)
     """
     import matplotlib.colors as mcolors
     from rasterio.plot import reshape_as_image
@@ -324,9 +329,8 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
     xs, ys = _utm_coords(ds_mean)
     v_x, v_y, speed, _bearing, corr, s2n = _velocity_arrays(ds_mean)
 
-    mask = (s2n >= min_s2n) & (corr >= min_corr) & (speed >= min_speed)
-    if dsm_mask is not None:
-        mask = mask & dsm_mask
+    # DSM land mask only — quality screening is left to the end user
+    mask = dsm_mask if dsm_mask is not None else np.ones(speed.shape, dtype=bool)
 
     speed_vals = speed[mask]
 
@@ -519,9 +523,7 @@ def run_piv(video_path, output_dir, camera_config_path=None,
                min_speed=min_speed, dsm_mask=dsm_mask)
 
     frame_utm_path = _make_frame_utm(da_rgb_proj[0], ds_mean, output_dir)
-    _save_plots_utm(ds_mean, frame_utm_path, output_dir,
-                    min_s2n=min_s2n, min_corr=min_corr, min_speed=min_speed,
-                    dsm_mask=dsm_mask)
+    _save_plots_utm(ds_mean, frame_utm_path, output_dir, dsm_mask=dsm_mask)
 
 
 def main():
