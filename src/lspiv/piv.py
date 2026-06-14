@@ -380,17 +380,21 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
             ax.imshow(img[..., 0], extent=ext, origin="upper", aspect="equal", cmap="gray")
 
     def _finish(fig, ax, mappable, fname, cbar_label="Speed (m/s)"):
-        plt.colorbar(mappable, ax=ax, label=cbar_label, shrink=0.7, extend="max")
+        # Fix the axes and colorbar at identical figure-coordinate positions so
+        # every output figure has the same map pixels regardless of label length.
+        # subplots_adjust pins the axes box; manual cax pins the colorbar.
+        fig.subplots_adjust(left=0.12, right=0.80, top=0.97, bottom=0.08)
+        cax = fig.add_axes([0.83, 0.15, 0.025, 0.70])
+        fig.colorbar(mappable, cax=cax, label=cbar_label, extend="max")
         ax.set_xlabel("Easting (m)")
         ax.set_ylabel("Northing (m)")
         ax.ticklabel_format(style="plain", useOffset=False)
         ax.set_aspect("equal")
-        # Pin spatial extent to the background frame so all figures overlap exactly
         ax.set_xlim(ext[0], ext[1])
         ax.set_ylim(ext[2], ext[3])
         ax.set_facecolor((0, 0, 0, 0))
         path = os.path.join(output_dir, fname)
-        plt.savefig(path, dpi=300, bbox_inches="tight", transparent=True)
+        fig.savefig(path, dpi=300, transparent=True)
         plt.close()
         print(f"Saved {path}")
 
@@ -410,7 +414,7 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
         sr = np.ma.array(speed, mask=~m)
 
         # Colored quiver
-        fig, ax = plt.subplots(figsize=(10, 12))
+        fig, ax = plt.subplots(figsize=(12, 10))
         _bg(ax)
         q = ax.quiver(xs[m], ys[m], v_x[m], v_y[m], speed[m],
                       cmap="plasma", norm=norm,
@@ -418,14 +422,14 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
         _finish(fig, ax, q, f"velocity{suffix}")
 
         # Speed raster
-        fig, ax = plt.subplots(figsize=(10, 12))
+        fig, ax = plt.subplots(figsize=(12, 10))
         _bg(ax)
         pcm = ax.pcolormesh(xs, ys, sr, cmap="plasma", norm=norm,
                             shading="nearest", zorder=2)
         _finish(fig, ax, pcm, f"velocity_raster{suffix}")
 
         # Speed raster + white arrows
-        fig, ax = plt.subplots(figsize=(10, 12))
+        fig, ax = plt.subplots(figsize=(12, 10))
         _bg(ax)
         pcm = ax.pcolormesh(xs, ys, sr, cmap="plasma", norm=norm,
                             shading="nearest", alpha=0.7, zorder=2)
@@ -436,7 +440,7 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
 
         if has_std:
             # Std dev raster
-            fig, ax = plt.subplots(figsize=(10, 12))
+            fig, ax = plt.subplots(figsize=(12, 10))
             _bg(ax)
             pcm = ax.pcolormesh(xs, ys, np.ma.array(speed_std, mask=~m),
                                 cmap="plasma", norm=std_norm,
@@ -445,7 +449,7 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
                     cbar_label="Speed std dev (m/s)")
 
             # CV raster
-            fig, ax = plt.subplots(figsize=(10, 12))
+            fig, ax = plt.subplots(figsize=(12, 10))
             _bg(ax)
             pcm = ax.pcolormesh(xs, ys, np.ma.array(cv, mask=~m),
                                 cmap="YlOrRd", norm=cv_norm,
