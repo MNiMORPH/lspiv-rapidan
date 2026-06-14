@@ -275,6 +275,16 @@ def _make_frame_utm(frame_da, ds_mean, output_dir):
         check=True, capture_output=True,
     )
     os.remove(gcp_path)
+
+    # Also zero out alpha where all RGB channels are near-black — stabilization
+    # fill pixels (warp_cur_frame sets uncovered corners to 0).
+    with rasterio.open(warped_path, "r+") as src:
+        data = src.read()           # (bands, ny, nx); last band is alpha from -dstalpha
+        rgb  = data[:-1]            # all bands except alpha
+        stab_border = rgb.max(axis=0) < 10   # near-black across all channels
+        data[-1][stab_border] = 0   # erase alpha in those pixels
+        src.write(data)
+
     print(f"Warped background frame saved to {warped_path}")
     return warped_path
 
