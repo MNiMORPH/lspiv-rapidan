@@ -271,7 +271,7 @@ def _make_frame_utm(frame_da, ds_mean, output_dir):
         dst.gcps = (gcps, crs)    # rasterio 1.3+ property setter (replaces update_gcps)
 
     subprocess.run(
-        ["gdalwarp", "-r", "bilinear", "-overwrite", gcp_path, warped_path],
+        ["gdalwarp", "-r", "bilinear", "-overwrite", "-dstalpha", gcp_path, warped_path],
         check=True, capture_output=True,
     )
     os.remove(gcp_path)
@@ -334,8 +334,9 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
     speed_raster = np.ma.array(speed, mask=~mask)
 
     def _bg(ax):
+        # Use RGBA (4 bands) when available so nodata corners are transparent
         if n_bands >= 3:
-            ax.imshow(img[..., :3], extent=ext, origin="upper", aspect="equal")
+            ax.imshow(img[..., :n_bands], extent=ext, origin="upper", aspect="equal")
         else:
             ax.imshow(img[..., 0], extent=ext, origin="upper", aspect="equal", cmap="gray")
 
@@ -359,8 +360,9 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
         ax.set_ylabel("Northing (m)")
         ax.ticklabel_format(style="plain", useOffset=False)
         ax.set_aspect("equal")
+        ax.set_facecolor((0, 0, 0, 0))
         path = os.path.join(output_dir, fname)
-        plt.savefig(path, dpi=300, bbox_inches="tight")
+        plt.savefig(path, dpi=300, bbox_inches="tight", transparent=True)
         plt.close()
         print(f"Saved {path}")
 
