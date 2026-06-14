@@ -279,9 +279,19 @@ def _make_frame_utm(frame_da, ds_mean, output_dir):
     return warped_path
 
 
+def _nice_upper(v):
+    """Round v up to the nearest 0.5-unit step (0.5, 1.0, 1.5, 2.0, …)."""
+    return float(np.ceil(v * 2.0)) / 2.0
+
+
 def _save_plot_utm(ds_mean, frame_utm_path, output_dir,
                    min_s2n=6.0, min_corr=0.5, min_speed=0.02, dsm_mask=None):
-    """Save a geographic quiver plot in UTM coordinates with the warped frame as background."""
+    """Save a geographic quiver plot in UTM coordinates with the warped frame as background.
+
+    Colorbar upper bound and arrow scale are derived automatically from the filtered
+    speed distribution so the plot adapts to different sites and flow regimes.
+    """
+    import matplotlib.colors as mcolors
     from rasterio.plot import reshape_as_image
 
     xs, ys = _utm_coords(ds_mean)
@@ -290,6 +300,19 @@ def _save_plot_utm(ds_mean, frame_utm_path, output_dir,
     mask = (s2n >= min_s2n) & (corr >= min_corr) & (speed >= min_speed)
     if dsm_mask is not None:
         mask = mask & dsm_mask
+
+    speed_vals = speed[mask]
+
+    # Colorbar: 0 → nice ceiling of 99th-percentile speed (clips outliers cleanly)
+    vmax = _nice_upper(float(np.nanpercentile(speed_vals, 99))) if speed_vals.size else 5.0
+
+    # Arrow scale: 95th-percentile arrow fits in 80% of one PIV cell
+    cell_spacing = float(abs(ds_mean.x.values[1] - ds_mean.x.values[0]))
+    speed_p95 = float(np.nanpercentile(speed_vals, 95)) if speed_vals.size else 1.0
+    arrow_scale = speed_p95 / (0.8 * cell_spacing)
+
+    print(f"UTM plot: vmax={vmax:.1f} m/s  arrow_scale={arrow_scale:.2f}  "
+          f"cell_spacing={cell_spacing:.2f} m")
 
     with rasterio.open(frame_utm_path) as src:
         img = reshape_as_image(src.read())    # (ny, nx, bands)
@@ -303,12 +326,14 @@ def _save_plot_utm(ds_mean, frame_utm_path, output_dir,
     else:
         ax.imshow(img[..., 0], extent=ext, origin="upper", aspect="equal", cmap="gray")
 
+    norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
     q = ax.quiver(
         xs[mask], ys[mask], v_x[mask], v_y[mask], speed[mask],
-        cmap="plasma", scale=5.0, scale_units="xy",
-        width=0.001,
+        cmap="plasma", norm=norm,
+        scale=arrow_scale, scale_units="xy",
+        width=0.0012,
     )
-    plt.colorbar(q, ax=ax, label="Speed (m/s)", shrink=0.7)
+    plt.colorbar(q, ax=ax, label="Speed (m/s)", shrink=0.7, extend="max")
     ax.set_xlabel("Easting (m)")
     ax.set_ylabel("Northing (m)")
     ax.ticklabel_format(style="plain", useOffset=False)
