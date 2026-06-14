@@ -276,13 +276,20 @@ def _make_frame_utm(frame_da, ds_mean, output_dir):
     )
     os.remove(gcp_path)
 
-    # Also zero out alpha where all RGB channels are near-black — stabilization
-    # fill pixels (warp_cur_frame sets uncovered corners to 0).
+    # Zero out alpha at the stabilization border (stabilo fills uncovered corners
+    # with 0) and also erode the valid region by a few pixels to remove the
+    # bilinear-interpolation blend zone between the fill zeros and real pixels.
+    from scipy.ndimage import binary_erosion
     with rasterio.open(warped_path, "r+") as src:
-        data = src.read()           # (bands, ny, nx); last band is alpha from -dstalpha
-        rgb  = data[:-1]            # all bands except alpha
-        stab_border = rgb.max(axis=0) < 10   # near-black across all channels
-        data[-1][stab_border] = 0   # erase alpha in those pixels
+        data  = src.read()              # (bands, ny, nx); last band = alpha from -dstalpha
+        rgb   = data[:-1]
+        alpha = data[-1]
+        stab_border = rgb.max(axis=0) < 10     # pure-black fill pixels
+        alpha[stab_border] = 0
+        valid = alpha > 0
+        valid = binary_erosion(valid, iterations=3)  # trim blended fringe
+        alpha[~valid] = 0
+        data[-1] = alpha
         src.write(data)
 
     print(f"Warped background frame saved to {warped_path}")
