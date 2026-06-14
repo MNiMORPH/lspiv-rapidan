@@ -350,7 +350,7 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir,
 
     def _arrows_black(ax):
         ax.quiver(xs[mask], ys[mask], v_x[mask], v_y[mask],
-                  color="black",
+                  color="white",
                   scale=arrow_scale, scale_units="xy", width=0.0012, zorder=3)
 
     def _finish(fig, ax, mappable, fname):
