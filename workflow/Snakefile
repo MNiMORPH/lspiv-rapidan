@@ -103,17 +103,18 @@ rule piv:
         velocity_std_utm       = RESULTS + "/{sample}/velocity_std_utm.png",
         velocity_cv_utm        = RESULTS + "/{sample}/velocity_cv_utm.png"
     params:
-        start_frame = config["piv"]["start_frame"],
-        end_frame   = config["piv"].get("end_frame") or "",
-        h_a         = config["piv"]["h_a"],
-        engine      = config["piv"]["engine"],
-        window_size = config["piv"].get("window_size") or "",
-        min_s2n     = config["piv"]["min_s2n"],
-        min_corr    = config["piv"]["min_corr"],
-        min_speed   = config["piv"]["min_speed"],
-        dsm         = config["piv"].get("dsm") or "",
-        water_elev_m= config["piv"].get("water_elev_m") or "",
-        output_dir  = RESULTS + "/{sample}",
+        start_frame  = config["piv"]["start_frame"],
+        end_frame    = config["piv"].get("end_frame") or "",
+        h_a          = config["piv"]["h_a"],
+        engine       = config["piv"]["engine"],
+        window_size  = config["piv"].get("window_size") or "",
+        min_s2n      = config["piv"]["min_s2n"],
+        min_corr     = config["piv"]["min_corr"],
+        min_speed    = config["piv"]["min_speed"],
+        cv_threshold = config["piv"].get("cv_threshold") or "",
+        dsm          = config["piv"].get("dsm") or "",
+        water_elev_m = config["piv"].get("water_elev_m") or "",
+        output_dir   = RESULTS + "/{sample}",
     shell:
         """
         lspiv-piv \
@@ -127,6 +128,7 @@ rule piv:
             --min-s2n       {params.min_s2n} \
             --min-corr      {params.min_corr} \
             --min-speed     {params.min_speed} \
+            $([ -n "{params.cv_threshold}" ] && echo "--cv-threshold {params.cv_threshold}") \
             $([ -n "{params.end_frame}" ] && echo "--end-frame {params.end_frame}") \
             $([ -n "{params.dsm}" ] && echo "--dsm {params.dsm}") \
             $([ -n "{params.water_elev_m}" ] && echo "--water-elev-m {params.water_elev_m}")
