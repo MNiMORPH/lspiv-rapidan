@@ -1,4 +1,5 @@
 import argparse
+import dataclasses
 import json
 import os
 import subprocess
@@ -10,7 +11,6 @@ import matplotlib
 matplotlib.use("Agg")   # non-interactive backend; figures are saved to disk only
 import matplotlib.pyplot as plt
 import numpy as np
-import pyorc
 import pyproj
 import rasterio
 import rasterio.transform
@@ -18,29 +18,111 @@ from scipy.interpolate import griddata
 from shapely.geometry import Point
 
 
-def _placeholder_camera_config(width, height, crs=32615):
-    """Build a camera config from pixel-scaled GCPs.
+@dataclasses.dataclass
+class CameraConfig:
+    """Camera configuration (replaces pyorc.CameraConfig).
 
-    This is a stand-in until a real georeferenced config is provided.
-    Real GCPs (surveyed or from GPS-tagged imagery) should be supplied
-    via --camera-config instead.
+    gcps must contain 'src' (image pixel coords) and 'dst' (UTM coords),
+    each a list of 4 [x, y] pairs corresponding to the same physical points.
     """
+    height: int
+    width: int
+    crs: int
+    gcps: dict
+    resolution: float = 0.05
+
+
+def _compute_projection_params(camera_config):
+    """Compute perspective projection parameters from GCPs.
+
+    Returns (M, x_min, y_max, out_w, out_h, res) where M is the homography
+    that maps image pixel (col, row) to output pixel (col, row). The output
+    grid is a regular north-up UTM raster at `resolution` m/px.
+    """
+    src_pts = np.float32(camera_config.gcps["src"])   # image (col, row)
+    dst_pts = np.float32(camera_config.gcps["dst"])   # UTM (easting, northing)
+    res = camera_config.resolution
+
+    x_min = float(dst_pts[:, 0].min())
+    x_max = float(dst_pts[:, 0].max())
+    y_min = float(dst_pts[:, 1].min())
+    y_max = float(dst_pts[:, 1].max())
+
+    out_w = max(1, int(round((x_max - x_min) / res)))
+    out_h = max(1, int(round((y_max - y_min) / res)))
+
+    # Output pixel (c, r) ↔ UTM (x_min + c*res, y_max - r*res)
+    out_pts = np.float32([
+        [(utm_x - x_min) / res, (y_max - utm_y) / res]
+        for utm_x, utm_y in dst_pts
+    ])
+
+    M = cv2.getPerspectiveTransform(src_pts, out_pts)
+    return M, x_min, y_max, out_w, out_h, res
+
+
+def _load_frames_gray(video_path, start_frame, end_frame):
+    """Load grayscale frames [start_frame, end_frame] as float32 (N, H, W)."""
+    cap = cv2.VideoCapture(video_path)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    frames = []
+    for _ in range(end_frame - start_frame + 1):
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32))
+    cap.release()
+    if not frames:
+        raise RuntimeError(f"No frames read from {video_path} [{start_frame}–{end_frame}]")
+    return np.stack(frames)
+
+
+def _load_rgb_frame(video_path, frame_idx):
+    """Load a single BGR frame (uint8) at frame_idx."""
+    cap = cv2.VideoCapture(video_path)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        raise RuntimeError(f"Could not read frame {frame_idx} from {video_path}")
+    return frame
+
+
+def _normalize_frames(frames_np, samples=15):
+    """Background subtraction + per-frame normalization, matching pyORC frames.normalize().
+
+    Subtracts the temporal mean of evenly-spaced sample frames, then scales
+    each frame independently to [0, 255] float32.
+    """
+    n = len(frames_np)
+    time_interval = max(1, round(n / samples))
+    background = frames_np[::time_interval].mean(axis=0).astype(np.float32)
+    reduced = frames_np.astype(np.float32) - background
+    f_min = reduced.min(axis=(1, 2), keepdims=True)
+    f_max = reduced.max(axis=(1, 2), keepdims=True)
+    denom = np.where(f_max > f_min, f_max - f_min, 1.0)
+    return ((reduced - f_min) / denom * 255.0).astype(np.float32)
+
+
+def _placeholder_camera_config(width, height, crs=32615):
+    """Build a pixel-scaled CameraConfig for use without real GCPs.
+
+    Maps image corners to a local UTM grid at camera_config.resolution m/px.
+    Coordinates are meaningless but the pipeline produces valid output.
+    """
+    res = 0.05
     gcps = {
-        "src": [[1, height], [1, 1], [width, 1], [width, height]],
+        "src": [[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]],
         "dst": [
-            [0, 0],
-            [0, height / 100.0],
-            [width / 100.0, height / 100.0],
-            [width / 100.0, 0],
+            [0.0,       height * res],
+            [width * res, height * res],
+            [width * res, 0.0],
+            [0.0,       0.0],
         ],
         "h_ref": 0.0,
-        "z_0": 0.0,
+        "z_0":   0.0,
     }
-    camera_config = pyorc.CameraConfig(height=height, width=width, gcps=gcps, crs=crs)
-    camera_config.set_bbox_from_corners(
-        [[0, height], [width, height], [width, 0], [0, 0]]
-    )
-    return camera_config
+    return CameraConfig(height=height, width=width, crs=crs, gcps=gcps, resolution=res)
 
 
 def _crs_from_ds(ds_mean):
@@ -132,7 +214,7 @@ def _save_netcdf(ds_mean, output_dir):
 
 
 def _save_geotiff(ds_mean, output_dir):
-    """Interpolate the rotated pyORC grid onto a regular UTM grid and write GeoTIFF."""
+    """Interpolate the PIV grid onto a regular UTM grid and write GeoTIFF."""
     xs, ys = _utm_coords(ds_mean)
     v_x, v_y, speed, bearing, corr, s2n = _velocity_arrays(ds_mean)
     crs = _crs_from_ds(ds_mean)
@@ -472,10 +554,10 @@ def _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
                  window_size, fps, chunk_size=50):
     """Run PIV in memory-safe chunks using OpenPIV and return a concatenated Dataset.
 
-    Loads and projects frames via pyORC (50 at a time to keep peak RAM ≈1.6 GB),
-    then runs FFT cross-correlation with OpenPIV on each consecutive frame pair.
-    Coordinate arrays (xs, ys, lon, lat) are sampled from the projected DataArray
-    at the OpenPIV grid positions and reused across chunks.
+    Loads grayscale frames via cv2, removes background via temporal mean subtraction,
+    projects to a regular UTM grid via cv2.warpPerspective, then runs FFT
+    cross-correlation with OpenPIV on each consecutive frame pair.  50 frames per
+    chunk keeps peak RAM ≈1.6 GB.
 
     corr is set to NaN — OpenPIV does not expose a normalised correlation
     coefficient directly. s2n is the peak2mean ratio from OpenPIV.
@@ -486,51 +568,60 @@ def _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
     ws      = window_size if window_size is not None else 10
     overlap = ws // 2
 
+    M, x_min, y_max, out_w, out_h, res = _compute_projection_params(camera_config)
+
+    ds_attrs = {"camera_config": json.dumps({
+        "crs":    camera_config.crs,
+        "gcps":   camera_config.gcps,
+        "height": camera_config.height,
+        "width":  camera_config.width,
+    })}
+
     coord_template = None
     piv_chunks = []
 
     for chunk_start in range(start_frame, end_frame + 1, chunk_size):
         chunk_end = min(chunk_start + chunk_size - 1, end_frame)
-        video_c = pyorc.Video(video_path, camera_config=camera_config,
-                              start_frame=chunk_start, end_frame=chunk_end, h_a=h_a)
-        da = video_c.get_frames()
-        norm_samples = min(len(da), 15)
-        da_norm = da.frames.normalize(samples=norm_samples)
-        da_proj = da_norm.frames.project(method="numpy")
-        frames_np = np.asarray(da_proj).astype(np.float32)  # (N, h, w)
 
-        # Build coordinate arrays once from the first chunk's projected DataArray.
-        # xs/ys/lon/lat are the same for every chunk because the projection is fixed.
+        frames_raw  = _load_frames_gray(video_path, chunk_start, chunk_end)
+        frames_norm = _normalize_frames(frames_raw)
+        frames_proj = np.stack([
+            cv2.warpPerspective(f, M, (out_w, out_h))
+            for f in frames_norm
+        ])   # (N, out_h, out_w)
+        del frames_raw, frames_norm
+
+        # Build coordinate arrays once from the first chunk.
         if coord_template is None:
-            proj_h, proj_w = frames_np.shape[1], frames_np.shape[2]
+            proj_h, proj_w = frames_proj.shape[1], frames_proj.shape[2]
             x_px, y_px = openpiv.pyprocess.get_coordinates(
                 image_size=(proj_h, proj_w),
                 search_area_size=ws,
                 overlap=overlap,
             )
-            xi = np.round(x_px).astype(int).clip(0, proj_w - 1)
-            yi = np.round(y_px).astype(int).clip(0, proj_h - 1)
-            xs_2d  = da_proj.xs.values[yi, xi]
-            ys_2d  = da_proj.ys.values[yi, xi]
-            lon_2d = da_proj.lon.values[yi, xi]
-            lat_2d = da_proj.lat.values[yi, xi]
-            x_1d   = da_proj.x.values[xi[0, :]]
-            y_1d   = da_proj.y.values[yi[:, 0]]
-            ds_attrs = dict(da_proj.attrs)
-            coord_template = (xs_2d, ys_2d, lon_2d, lat_2d, x_1d, y_1d, ds_attrs)
+            # x_px, y_px are output-pixel positions; convert to UTM
+            xs_2d  = x_min + x_px * res
+            ys_2d  = y_max - y_px * res
+            x_1d   = xs_2d[0, :]    # easting along columns
+            y_1d   = ys_2d[:, 0]    # northing along rows (decreasing southward)
 
-        xs_2d, ys_2d, lon_2d, lat_2d, x_1d, y_1d, ds_attrs = coord_template
+            transformer = pyproj.Transformer.from_crs(
+                camera_config.crs, 4326, always_xy=True)
+            lon_2d, lat_2d = transformer.transform(xs_2d, ys_2d)
 
-        # OpenPIV cross-correlation on each consecutive frame pair
+            coord_template = (xs_2d, ys_2d, lon_2d, lat_2d, x_1d, y_1d)
+
+        xs_2d, ys_2d, lon_2d, lat_2d, x_1d, y_1d = coord_template
+
         chunk_vx, chunk_vy, chunk_s2n = [], [], []
-        for i in range(len(frames_np) - 1):
+        for i in range(len(frames_proj) - 1):
             u, v, s2n = openpiv.pyprocess.extended_search_area_piv(
-                frames_np[i], frames_np[i + 1],
+                frames_proj[i], frames_proj[i + 1],
                 window_size=ws, overlap=overlap, search_area_size=ws,
                 sig2noise_method="peak2mean",
             )
-            chunk_vx.append(u * camera_config.resolution * fps)
-            chunk_vy.append(-v * camera_config.resolution * fps)
+            chunk_vx.append(u * res * fps)
+            chunk_vy.append(-v * res * fps)
             chunk_s2n.append(s2n)
 
         n_pairs = len(chunk_vx)
@@ -559,9 +650,11 @@ def _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
             attrs=ds_attrs,
         )
         piv_chunks.append(ds)
-        del da, da_norm, da_proj, frames_np
+        del frames_proj
 
-    return xr.concat(piv_chunks, dim="time")
+    result = xr.concat(piv_chunks, dim="time")
+    result.attrs = ds_attrs
+    return result
 
 
 def run_piv(video_path, output_dir, camera_config_path=None,
@@ -570,6 +663,8 @@ def run_piv(video_path, output_dir, camera_config_path=None,
             min_s2n=1.0, min_corr=0.5, min_speed=0.02,
             cv_threshold=100.0,
             dsm_path=None, water_elev_m=None):
+    import xarray as xr
+
     os.makedirs(output_dir, exist_ok=True)
 
     cap = cv2.VideoCapture(video_path)
@@ -584,8 +679,14 @@ def run_piv(video_path, output_dir, camera_config_path=None,
 
     if camera_config_path is not None:
         with open(camera_config_path) as f:
-            camera_config = pyorc.CameraConfig(**json.load(f))
-        camera_config.set_bbox_from_corners([[0, height], [width, height], [width, 0], [0, 0]])
+            data = json.load(f)
+        camera_config = CameraConfig(
+            height=data["height"],
+            width=data["width"],
+            crs=data["crs"],
+            gcps=data["gcps"],
+            resolution=data.get("resolution", 0.05),
+        )
     else:
         print("WARNING: no camera config provided; using placeholder pixel-scaled GCPs.")
         camera_config = _placeholder_camera_config(width, height)
@@ -596,34 +697,46 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     ds_mean = piv.mean(dim="time", keep_attrs=True)
 
     # Temporal std as per-cell uncertainty estimate
-    import xarray as xr
     speed_all = np.sqrt(piv["v_x"]**2 + piv["v_y"]**2)
-    ds_mean["v_x_std"]    = piv["v_x"].std(dim="time")
-    ds_mean["v_y_std"]    = piv["v_y"].std(dim="time")
-    ds_mean["speed_std"]  = speed_all.std(dim="time")
-    del piv, speed_all   # free before loading RGB
+    ds_mean["v_x_std"]   = piv["v_x"].std(dim="time")
+    ds_mean["v_y_std"]   = piv["v_y"].std(dim="time")
+    ds_mean["speed_std"] = speed_all.std(dim="time")
+    del piv, speed_all
 
-    # Project only the two RGB frames we need: frame 0 for diagnostics, mid-frame
-    # for the UTM background.  Projecting the whole video at once loads every frame
-    # into memory (~14 GB for a 20 s / 600-frame clip at full resolution).
-    video = pyorc.Video(video_path, camera_config=camera_config,
-                        start_frame=start_frame, end_frame=end_frame, h_a=h_a)
-    da_rgb = video.get_frames(method="rgb")
-    n_rgb  = int(da_rgb.shape[0])
-    mid_frame_idx = n_rgb // 2
-    frame0_proj   = da_rgb[0:1].frames.project()
-    frame_mid_proj = da_rgb[mid_frame_idx : mid_frame_idx + 1].frames.project()
+    # Project two RGB frames: frame 0 for diagnostics, mid-frame for UTM background.
+    M, x_min, y_max, out_w, out_h, res = _compute_projection_params(camera_config)
+    extent_utm = [x_min, x_min + out_w * res, y_max - out_h * res, y_max]
 
-    plt.figure()
-    p = frame0_proj[0].frames.plot()
+    mid_frame_abs = start_frame + (end_frame - start_frame) // 2
+
+    frame0_bgr = _load_rgb_frame(video_path, start_frame)
+    frame0_proj_bgr = cv2.warpPerspective(frame0_bgr, M, (out_w, out_h))
+    frame0_rgb = cv2.cvtColor(frame0_proj_bgr, cv2.COLOR_BGR2RGB)
+
+    frame_mid_bgr = _load_rgb_frame(video_path, mid_frame_abs)
+    frame_mid_proj_bgr = cv2.warpPerspective(frame_mid_bgr, M, (out_w, out_h))
+    frame_mid_rgb = cv2.cvtColor(frame_mid_proj_bgr, cv2.COLOR_BGR2RGB)
+
+    # Build xarray DataArray for mid-frame (used by _make_frame_utm)
+    import xarray as xr
+    x_1d_full = x_min + np.arange(out_w) * res
+    y_1d_full = y_max - np.arange(out_h) * res   # decreasing (north→south)
+    frame_mid_da = xr.DataArray(
+        frame_mid_rgb,
+        dims=["y", "x", "rgb"],
+        coords={"x": x_1d_full, "y": y_1d_full},
+    )
+
+    fig, ax = plt.subplots()
+    ax.imshow(frame0_rgb, extent=extent_utm, origin="upper", aspect="equal")
     plt.savefig(os.path.join(output_dir, "Frame.png"), dpi=150, bbox_inches="tight")
     plt.close()
 
-    plt.figure()
-    p = frame0_proj[0].frames.plot()
-    X, Y = np.meshgrid(ds_mean.x.values, ds_mean.y.values)
-    p.axes.quiver(X, Y, ds_mean["v_x"].values, ds_mean["v_y"].values,
-                  color="r", scale=20, width=0.002)
+    fig, ax = plt.subplots()
+    ax.imshow(frame0_rgb, extent=extent_utm, origin="upper", aspect="equal")
+    ax.quiver(ds_mean.xs.values, ds_mean.ys.values,
+              ds_mean["v_x"].values, ds_mean["v_y"].values,
+              color="r", scale=20, width=0.002)
     plt.savefig(os.path.join(output_dir, "PIVquiverFrame.png"), dpi=150, bbox_inches="tight")
     plt.close()
 
@@ -643,10 +756,12 @@ def run_piv(video_path, output_dir, camera_config_path=None,
                     & xr.DataArray(land_mask_np, dims=["y", "x"]))
 
     ds_filtered = ds_mean.where(quality_mask)
-    plt.figure()
-    p = frame0_proj[0].frames.plot()
-    p.axes.quiver(X, Y, ds_filtered["v_x"].values, ds_filtered["v_y"].values,
-                  color="r", scale=20, width=0.002)
+
+    fig, ax = plt.subplots()
+    ax.imshow(frame0_rgb, extent=extent_utm, origin="upper", aspect="equal")
+    ax.quiver(ds_filtered.xs.values, ds_filtered.ys.values,
+              ds_filtered["v_x"].values, ds_filtered["v_y"].values,
+              color="r", scale=20, width=0.002)
     plt.savefig(os.path.join(output_dir, "PIVquiverFiltered.png"), dpi=150, bbox_inches="tight")
     plt.close()
 
@@ -655,7 +770,7 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     _save_gpkg(ds_mean, output_dir, min_s2n=min_s2n, min_corr=min_corr,
                min_speed=min_speed, land_mask=land_mask_np)
 
-    frame_utm_path = _make_frame_utm(frame_mid_proj[0], ds_mean, output_dir)
+    frame_utm_path = _make_frame_utm(frame_mid_da, ds_mean, output_dir)
     _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=land_mask_np)
 
 
