@@ -108,7 +108,7 @@ Key parameters:
 | `piv.engine` | `numba` | `numba` (fast) or `opencv` |
 | `piv.window_size` | `10` | Interrogation window (px); 1 window ≈ 1 output cell |
 | `piv.h_a` | `0.0` | Water surface elevation (m); update per clip if known |
-| `piv.min_s2n` | `6.0` | Signal-to-noise threshold |
+| `piv.min_s2n` | `1.0` | Signal-to-noise threshold (OpenPIV peak2mean has low dynamic range; CV mask is the primary quality filter) |
 | `piv.min_corr` | `0.5` | Cross-correlation threshold |
 | `piv.min_speed` | `0.02` | Minimum speed (m/s) |
 | `piv.cv_threshold` | `100.0` | Max CV (%) to classify a cell as water |
@@ -129,6 +129,6 @@ Processed results are in the companion repository:
 ## Dependencies
 
 - [stabilo](https://github.com/mmaelicke/stabilo) — video stabilization
-- [pyORC](https://github.com/localdevices/pyorc) — PIV backend (pyOpenRiverCam)
+- [OpenPIV](https://openpiv.readthedocs.io) — cross-correlation PIV engine
 - [Snakemake](https://snakemake.readthedocs.io) — workflow orchestration
-- rasterio, pyproj, geopandas, xarray, matplotlib, matplotlib-scalebar
+- opencv-python, rasterio, pyproj, geopandas, xarray, netcdf4, scipy, matplotlib, matplotlib-scalebar
