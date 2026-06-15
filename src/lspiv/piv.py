@@ -206,7 +206,8 @@ def _save_gpkg(ds_mean, output_dir, min_s2n=6.0, min_corr=0.5, min_speed=0.02, l
     v_x, v_y, speed, bearing, corr, s2n = _velocity_arrays(ds_mean)
     crs = _crs_from_ds(ds_mean)
 
-    mask = (s2n >= min_s2n) & (corr >= min_corr) & (speed >= min_speed)
+    corr_ok = np.isnan(corr) | (corr >= min_corr)
+    mask = (s2n >= min_s2n) & corr_ok & (speed >= min_speed)
     if land_mask is not None:
         mask = mask & land_mask
 
@@ -468,21 +469,26 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
 
 
 def _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
-                 piv_kwargs, chunk_size=50):
-    """Run PIV in memory-safe chunks and return a concatenated Dataset.
+                 window_size, fps, chunk_size=50):
+    """Run PIV in memory-safe chunks using OpenPIV and return a concatenated Dataset.
 
-    Loading all frames into memory via normalize() uses ~32 MB per frame
-    (3836×2102 × float32) — roughly 1.6 GB per 50 frames.  This function
-    processes the video in chunks so peak RAM stays at ≈chunk_size × 32 MB
-    instead of scaling with the full clip length.
+    Loads and projects frames via pyORC (50 at a time to keep peak RAM ≈1.6 GB),
+    then runs FFT cross-correlation with OpenPIV on each consecutive frame pair.
+    Coordinate arrays (xs, ys, lon, lat) are sampled from the projected DataArray
+    at the OpenPIV grid positions and reused across chunks.
 
-    Each chunk is normalised independently (temporal mean subtracted over the
-    chunk window), which is equivalent to global normalisation for a stationary
-    camera with stable illumination.
+    corr is set to NaN — OpenPIV does not expose a normalised correlation
+    coefficient directly. s2n is the peak2mean ratio from OpenPIV.
     """
     import xarray as xr
+    import openpiv.pyprocess
 
+    ws      = window_size if window_size is not None else 10
+    overlap = ws // 2
+
+    coord_template = None
     piv_chunks = []
+
     for chunk_start in range(start_frame, end_frame + 1, chunk_size):
         chunk_end = min(chunk_start + chunk_size - 1, end_frame)
         video_c = pyorc.Video(video_path, camera_config=camera_config,
@@ -490,12 +496,70 @@ def _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
         da = video_c.get_frames()
         norm_samples = min(len(da), 15)
         da_norm = da.frames.normalize(samples=norm_samples)
-        da_norm_proj = da_norm.frames.project(method="numpy")
-        piv = da_norm_proj.frames.get_piv(**piv_kwargs)
-        n = piv.sizes.get("time", "?")
-        print(f"  PIV chunk frames {chunk_start}–{chunk_end}: {n} pairs")
-        piv_chunks.append(piv)
-        del da, da_norm, da_norm_proj   # free the large normalized-frame array
+        da_proj = da_norm.frames.project(method="numpy")
+        frames_np = np.asarray(da_proj).astype(np.float32)  # (N, h, w)
+
+        # Build coordinate arrays once from the first chunk's projected DataArray.
+        # xs/ys/lon/lat are the same for every chunk because the projection is fixed.
+        if coord_template is None:
+            proj_h, proj_w = frames_np.shape[1], frames_np.shape[2]
+            x_px, y_px = openpiv.pyprocess.get_coordinates(
+                image_size=(proj_h, proj_w),
+                search_area_size=ws,
+                overlap=overlap,
+            )
+            xi = np.round(x_px).astype(int).clip(0, proj_w - 1)
+            yi = np.round(y_px).astype(int).clip(0, proj_h - 1)
+            xs_2d  = da_proj.xs.values[yi, xi]
+            ys_2d  = da_proj.ys.values[yi, xi]
+            lon_2d = da_proj.lon.values[yi, xi]
+            lat_2d = da_proj.lat.values[yi, xi]
+            x_1d   = da_proj.x.values[xi[0, :]]
+            y_1d   = da_proj.y.values[yi[:, 0]]
+            ds_attrs = dict(da_proj.attrs)
+            coord_template = (xs_2d, ys_2d, lon_2d, lat_2d, x_1d, y_1d, ds_attrs)
+
+        xs_2d, ys_2d, lon_2d, lat_2d, x_1d, y_1d, ds_attrs = coord_template
+
+        # OpenPIV cross-correlation on each consecutive frame pair
+        chunk_vx, chunk_vy, chunk_s2n = [], [], []
+        for i in range(len(frames_np) - 1):
+            u, v, s2n = openpiv.pyprocess.extended_search_area_piv(
+                frames_np[i], frames_np[i + 1],
+                window_size=ws, overlap=overlap, search_area_size=ws,
+                sig2noise_method="peak2mean",
+            )
+            chunk_vx.append(u * camera_config.resolution * fps)
+            chunk_vy.append(-v * camera_config.resolution * fps)
+            chunk_s2n.append(s2n)
+
+        n_pairs = len(chunk_vx)
+        print(f"  PIV chunk frames {chunk_start}–{chunk_end}: {n_pairs} pairs")
+
+        ny, nx = xs_2d.shape
+        time_coords = np.array([(chunk_start + i) / fps for i in range(n_pairs)])
+
+        ds = xr.Dataset(
+            {
+                "v_x":  (["time", "y", "x"], np.array(chunk_vx,  dtype=np.float32)),
+                "v_y":  (["time", "y", "x"], np.array(chunk_vy,  dtype=np.float32)),
+                "s2n":  (["time", "y", "x"], np.array(chunk_s2n, dtype=np.float32)),
+                "corr": (["time", "y", "x"],
+                         np.full((n_pairs, ny, nx), np.nan, dtype=np.float32)),
+            },
+            coords={
+                "time": time_coords,
+                "y":    y_1d,
+                "x":    x_1d,
+                "xs":   (["y", "x"], xs_2d),
+                "ys":   (["y", "x"], ys_2d),
+                "lon":  (["y", "x"], lon_2d),
+                "lat":  (["y", "x"], lat_2d),
+            },
+            attrs=ds_attrs,
+        )
+        piv_chunks.append(ds)
+        del da, da_norm, da_proj, frames_np
 
     return xr.concat(piv_chunks, dim="time")
 
@@ -503,13 +567,14 @@ def _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
 def run_piv(video_path, output_dir, camera_config_path=None,
             start_frame=1, end_frame=None, h_a=0.0, piv_engine="numba",
             window_size=None,
-            min_s2n=6.0, min_corr=0.5, min_speed=0.02,
+            min_s2n=1.0, min_corr=0.5, min_speed=0.02,
             cv_threshold=100.0,
             dsm_path=None, water_elev_m=None):
     os.makedirs(output_dir, exist_ok=True)
 
     cap = cv2.VideoCapture(video_path)
     nframes = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps     = cap.get(cv2.CAP_PROP_FPS)
     width   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height  = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
@@ -525,12 +590,8 @@ def run_piv(video_path, output_dir, camera_config_path=None,
         print("WARNING: no camera config provided; using placeholder pixel-scaled GCPs.")
         camera_config = _placeholder_camera_config(width, height)
 
-    piv_kwargs = {"engine": piv_engine, "ensemble_corr": False}
-    if window_size is not None:
-        piv_kwargs["window_size"] = window_size  # int; pyORC expands to (n, n) internally
-
     piv = _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
-                       piv_kwargs, chunk_size=50)
+                       window_size=window_size, fps=fps, chunk_size=50)
 
     ds_mean = piv.mean(dim="time", keep_attrs=True)
 
@@ -560,7 +621,9 @@ def run_piv(video_path, output_dir, camera_config_path=None,
 
     plt.figure()
     p = frame0_proj[0].frames.plot()
-    ds_mean.velocimetry.plot(ax=p.axes)
+    X, Y = np.meshgrid(ds_mean.x.values, ds_mean.y.values)
+    p.axes.quiver(X, Y, ds_mean["v_x"].values, ds_mean["v_y"].values,
+                  color="r", scale=20, width=0.002)
     plt.savefig(os.path.join(output_dir, "PIVquiverFrame.png"), dpi=150, bbox_inches="tight")
     plt.close()
 
@@ -570,17 +633,20 @@ def run_piv(video_path, output_dir, camera_config_path=None,
         dsm_mask_np = _dsm_water_mask(ds_mean, dsm_path, water_elev_m)
         land_mask_np = land_mask_np & dsm_mask_np
 
-    # Quality filter mask for the filtered quiver figure and GeoPackage
+    # Quality filter mask for the filtered quiver figure and GeoPackage.
+    # corr is NaN with OpenPIV; treat NaN corr as passing the threshold.
     speed_da = np.sqrt(ds_mean["v_x"]**2 + ds_mean["v_y"]**2)
+    corr_ok = ds_mean["corr"].isnull() | (ds_mean["corr"] >= min_corr)
     quality_mask = ((ds_mean["s2n"] >= min_s2n)
-                    & (ds_mean["corr"] >= min_corr)
+                    & corr_ok
                     & (speed_da >= min_speed)
                     & xr.DataArray(land_mask_np, dims=["y", "x"]))
 
     ds_filtered = ds_mean.where(quality_mask)
     plt.figure()
     p = frame0_proj[0].frames.plot()
-    ds_filtered.velocimetry.plot(ax=p.axes)
+    p.axes.quiver(X, Y, ds_filtered["v_x"].values, ds_filtered["v_y"].values,
+                  color="r", scale=20, width=0.002)
     plt.savefig(os.path.join(output_dir, "PIVquiverFiltered.png"), dpi=150, bbox_inches="tight")
     plt.close()
 
@@ -601,9 +667,10 @@ def main():
     parser.add_argument("--start-frame",    type=int, default=1)
     parser.add_argument("--end-frame",      type=int, default=None)
     parser.add_argument("--h-a",            type=float, default=0.0,  help="Actual water level (m)")
-    parser.add_argument("--piv-engine",     default="numba", choices=["numba", "opencv"])
-    parser.add_argument("--window-size",    type=int, default=None, help="PIV interrogation window size in pixels (default: pyORC default of 10)")
-    parser.add_argument("--min-s2n",        type=float, default=6.0,  help="Min signal-to-noise for point filter (default: 6.0)")
+    parser.add_argument("--piv-engine",     default="numba", choices=["numba", "opencv"],
+                        help="Ignored (retained for backward compatibility; OpenPIV is always used)")
+    parser.add_argument("--window-size",    type=int, default=None, help="PIV interrogation window size in pixels (default: 10)")
+    parser.add_argument("--min-s2n",        type=float, default=1.0,  help="Min signal-to-noise for point filter (default: 1.0; OpenPIV peak2mean s2n has low dynamic range)")
     parser.add_argument("--min-corr",       type=float, default=0.5,  help="Min correlation for point filter (default: 0.5)")
     parser.add_argument("--min-speed",      type=float, default=0.02, help="Min speed (m/s) to include a vector (default: 0.02)")
     parser.add_argument("--cv-threshold",   type=float, default=100.0,
