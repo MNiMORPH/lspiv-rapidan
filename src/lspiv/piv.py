@@ -488,10 +488,11 @@ def _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
         video_c = pyorc.Video(video_path, camera_config=camera_config,
                               start_frame=chunk_start, end_frame=chunk_end, h_a=h_a)
         da = video_c.get_frames()
-        da_norm = da.frames.normalize()
+        norm_samples = min(len(da), 15)
+        da_norm = da.frames.normalize(samples=norm_samples)
         da_norm_proj = da_norm.frames.project(method="numpy")
         piv = da_norm_proj.frames.get_piv(**piv_kwargs)
-        n = piv.dims.get("time", piv.sizes.get("time", "?"))
+        n = piv.sizes.get("time", "?")
         print(f"  PIV chunk frames {chunk_start}–{chunk_end}: {n} pairs")
         piv_chunks.append(piv)
         del da, da_norm, da_norm_proj   # free the large normalized-frame array
