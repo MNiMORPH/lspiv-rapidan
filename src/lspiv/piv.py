@@ -467,6 +467,38 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
                     cbar_label="Speed CV (%)")
 
 
+def _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
+                 piv_kwargs, chunk_size=50):
+    """Run PIV in memory-safe chunks and return a concatenated Dataset.
+
+    Loading all frames into memory via normalize() uses ~32 MB per frame
+    (3836×2102 × float32) — roughly 1.6 GB per 50 frames.  This function
+    processes the video in chunks so peak RAM stays at ≈chunk_size × 32 MB
+    instead of scaling with the full clip length.
+
+    Each chunk is normalised independently (temporal mean subtracted over the
+    chunk window), which is equivalent to global normalisation for a stationary
+    camera with stable illumination.
+    """
+    import xarray as xr
+
+    piv_chunks = []
+    for chunk_start in range(start_frame, end_frame + 1, chunk_size):
+        chunk_end = min(chunk_start + chunk_size - 1, end_frame)
+        video_c = pyorc.Video(video_path, camera_config=camera_config,
+                              start_frame=chunk_start, end_frame=chunk_end, h_a=h_a)
+        da = video_c.get_frames()
+        da_norm = da.frames.normalize()
+        da_norm_proj = da_norm.frames.project(method="numpy")
+        piv = da_norm_proj.frames.get_piv(**piv_kwargs)
+        n = piv.dims.get("time", piv.sizes.get("time", "?"))
+        print(f"  PIV chunk frames {chunk_start}–{chunk_end}: {n} pairs")
+        piv_chunks.append(piv)
+        del da, da_norm, da_norm_proj   # free the large normalized-frame array
+
+    return xr.concat(piv_chunks, dim="time")
+
+
 def run_piv(video_path, output_dir, camera_config_path=None,
             start_frame=1, end_frame=None, h_a=0.0, piv_engine="numba",
             window_size=None,
@@ -492,22 +524,12 @@ def run_piv(video_path, output_dir, camera_config_path=None,
         print("WARNING: no camera config provided; using placeholder pixel-scaled GCPs.")
         camera_config = _placeholder_camera_config(width, height)
 
-    video = pyorc.Video(
-        video_path,
-        camera_config=camera_config,
-        start_frame=start_frame,
-        end_frame=end_frame,
-        h_a=h_a,
-    )
-
-    da = video.get_frames()
-    da_norm = da.frames.normalize()
-    da_norm_proj = da_norm.frames.project(method="numpy")
-
     piv_kwargs = {"engine": piv_engine, "ensemble_corr": False}
     if window_size is not None:
         piv_kwargs["window_size"] = window_size  # int; pyORC expands to (n, n) internally
-    piv = da_norm_proj.frames.get_piv(**piv_kwargs)
+
+    piv = _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
+                       piv_kwargs, chunk_size=50)
 
     ds_mean = piv.mean(dim="time", keep_attrs=True)
 
@@ -517,10 +539,13 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     ds_mean["v_x_std"]    = piv["v_x"].std(dim="time")
     ds_mean["v_y_std"]    = piv["v_y"].std(dim="time")
     ds_mean["speed_std"]  = speed_all.std(dim="time")
+    del piv, speed_all   # free before loading RGB
 
     # Project only the two RGB frames we need: frame 0 for diagnostics, mid-frame
     # for the UTM background.  Projecting the whole video at once loads every frame
     # into memory (~14 GB for a 20 s / 600-frame clip at full resolution).
+    video = pyorc.Video(video_path, camera_config=camera_config,
+                        start_frame=start_frame, end_frame=end_frame, h_a=h_a)
     da_rgb = video.get_frames(method="rgb")
     n_rgb  = int(da_rgb.shape[0])
     mid_frame_idx = n_rgb // 2
