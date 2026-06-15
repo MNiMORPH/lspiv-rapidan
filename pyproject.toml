@@ -8,12 +8,18 @@ version = "0.1.0"
 description = "Large-scale particle image velocimetry from drone video"
 requires-python = ">=3.10"
 dependencies = [
-    "numpy<2",
     "opencv-python",
     "matplotlib",
+    "matplotlib-scalebar",
+    "numpy",
+    "openpiv",
+    "pyproj",
     "rasterio",
+    "scipy",
     "stabilo",
-    "pyopenrivercam",
+    "geopandas",
+    "xarray",
+    "netcdf4",
 ]
 
 [project.scripts]
