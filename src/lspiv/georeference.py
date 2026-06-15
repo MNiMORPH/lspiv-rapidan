@@ -183,7 +183,7 @@ def georeference(video_path, orthophoto_path, output_path,
     _, _, H = match_frame_to_orthophoto(frame, ortho_gray)
 
     # Project the 4 frame corners through the homography to get world GCPs.
-    # pyORC requires exactly 2 or 4 GCPs; corners give the tightest bbox.
+    # Use the 4 image corners as GCPs; they define the tightest possible bbox.
     frame_corners = np.array(
         [[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32
     )
