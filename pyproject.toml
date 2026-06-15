@@ -24,3 +24,11 @@ lspiv-piv          = "lspiv.piv:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Integration tests are skipped automatically when data files are absent.
+# Run the full suite (including integration) with:
+#   conda run -n lspiv-env pytest
+# Run only the unit tests (no data needed):
+#   conda run -n lspiv-env pytest tests/test_masking.py
