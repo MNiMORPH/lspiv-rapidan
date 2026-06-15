@@ -1,5 +1,7 @@
 # lspiv-rapidan *(working name)*
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20706919.svg)](https://doi.org/10.5281/zenodo.20706919)
+
 A Snakemake pipeline for measuring surface water velocity from near-nadir drone
 video. Three stages run automatically:
 
