@@ -27,13 +27,13 @@ lab:
 
 # ── PIV parameters ────────────────────────────────────────────────────────────
 piv:
-  engine:      numba   # numba (fast) or opencv
-  window_size: 20      # PIV interrogation window size in pixels (default pyORC: 10; 1 px = 0.05 m)
+  engine:      numba   # retained for backward compatibility; OpenPIV is always used
+  window_size: 20      # PIV interrogation window size in pixels (1 px = 0.05 m)
   start_frame: 1
   end_frame:           # leave blank to use all frames
   h_a:         0.0     # actual water surface level (m); update when known
-  min_s2n:     6.0     # signal-to-noise threshold
-  min_corr:    0.5     # cross-correlation threshold
+  min_s2n:     1.0     # signal-to-noise threshold (OpenPIV peak2mean; low dynamic range)
+  min_corr:    0.5     # retained for compatibility; not used with OpenPIV
   min_speed:   0.02    # minimum speed (m/s); removes true-zero noise cells only
   cv_threshold: 100.0  # max coefficient of variation (%) to classify a cell as water
                        # stationary land → very high CV; coherent flow → low CV
