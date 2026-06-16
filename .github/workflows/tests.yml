@@ -1,0 +1,34 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: lspiv-env
+          create-args: >-
+            python=3.12
+            numpy scipy matplotlib geopandas rasterio pyproj shapely
+            xarray h5py pytest
+            -c conda-forge
+
+      - name: Install pip dependencies
+        shell: micromamba-shell {0}
+        run: pip install openpiv stabilo matplotlib-scalebar opencv-python h5netcdf
+
+      - name: Install package
+        shell: micromamba-shell {0}
+        run: pip install -e .
+
+      - name: Run unit tests
+        shell: micromamba-shell {0}
+        run: pytest tests/test_masking.py -v
