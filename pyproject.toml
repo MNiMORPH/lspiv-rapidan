@@ -19,7 +19,7 @@ dependencies = [
     "stabilo",
     "geopandas",
     "xarray",
-    "netcdf4",
+    "h5netcdf",
 ]
 
 [project.scripts]
