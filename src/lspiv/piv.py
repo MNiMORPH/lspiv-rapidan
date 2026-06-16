@@ -732,11 +732,21 @@ def run_piv(video_path, output_dir, camera_config_path=None,
     plt.savefig(os.path.join(output_dir, "Frame.png"), dpi=150, bbox_inches="tight")
     plt.close()
 
-    fig, ax = plt.subplots()
+    # Arrow scale: p95 speed spans ~1.5 cell widths in UTM space, making arrows
+    # visible but non-overlapping on the dense grid.
+    speed_2d     = np.sqrt(ds_mean["v_x"].values**2 + ds_mean["v_y"].values**2)
+    cell_spacing = float(abs(ds_mean.x.values[1] - ds_mean.x.values[0]))
+    speed_p95    = float(np.nanpercentile(speed_2d, 95))
+    arrow_scale  = max(speed_p95, 0.1) / (1.5 * cell_spacing)
+    vmax_q       = _nice_upper(speed_p95)
+
+    fig, ax = plt.subplots(figsize=(12, 9))
     ax.imshow(frame0_rgb, extent=extent_utm, origin="upper", aspect="equal")
     ax.quiver(ds_mean.xs.values, ds_mean.ys.values,
               ds_mean["v_x"].values, ds_mean["v_y"].values,
-              color="r", scale=20, width=0.002)
+              speed_2d,
+              cmap="plasma", clim=(0, vmax_q),
+              scale=arrow_scale, scale_units="xy", width=0.003, zorder=3)
     plt.savefig(os.path.join(output_dir, "PIVquiverFrame.png"), dpi=150, bbox_inches="tight")
     plt.close()
 
@@ -767,11 +777,14 @@ def run_piv(video_path, output_dir, camera_config_path=None,
 
     ds_filtered = ds_mean.where(quality_mask)
 
-    fig, ax = plt.subplots()
+    speed_filt = np.sqrt(ds_filtered["v_x"].values**2 + ds_filtered["v_y"].values**2)
+    fig, ax = plt.subplots(figsize=(12, 9))
     ax.imshow(frame0_rgb, extent=extent_utm, origin="upper", aspect="equal")
     ax.quiver(ds_filtered.xs.values, ds_filtered.ys.values,
               ds_filtered["v_x"].values, ds_filtered["v_y"].values,
-              color="r", scale=20, width=0.002)
+              speed_filt,
+              cmap="plasma", clim=(0, vmax_q),
+              scale=arrow_scale, scale_units="xy", width=0.003, zorder=3)
     plt.savefig(os.path.join(output_dir, "PIVquiverFiltered.png"), dpi=150, bbox_inches="tight")
     plt.close()
 
