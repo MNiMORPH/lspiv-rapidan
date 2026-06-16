@@ -90,8 +90,8 @@ Each processed clip produces a subdirectory under `results/`:
 | `velocity_raster_arrows_utm.png` / `*_all.png` | Speed raster + direction arrows |
 | `velocity_std_utm.png` / `*_all.png` | Speed standard deviation |
 | `velocity_cv_utm.png` / `*_all.png` | Coefficient of variation |
-| `PIVquiverFrame.png` | Quiver on raw frame (pixel coordinates) |
-| `PIVquiverFiltered.png` | Quality-filtered quiver on raw frame |
+| `PIVquiverFrame.png` | Speed-colored quiver on projected UTM frame (all cells) |
+| `PIVquiverFiltered.png` | Speed-colored quiver on projected UTM frame (quality-filtered cells only) |
 | `georeference_debug.png` | SIFT feature match overlay |
 
 Paired `*_utm.png` / `*_utm_all.png` files use identical pixel layout so they
