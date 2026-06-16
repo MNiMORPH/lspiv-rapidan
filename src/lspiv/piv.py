@@ -209,7 +209,7 @@ def _noisiness_mask(ds_mean, cv_threshold=100.0):
 
 def _save_netcdf(ds_mean, output_dir):
     path = os.path.join(output_dir, "velocity.nc")
-    ds_mean.to_netcdf(path)
+    ds_mean.to_netcdf(path, engine="h5netcdf")
     print(f"Velocity NetCDF saved to {path}")
 
 
