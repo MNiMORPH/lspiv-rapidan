@@ -62,13 +62,14 @@ results/            gitignored: all pipeline outputs
 active environment's `share/proj` before any rasterio or pyproj import. This must
 stay unconditional (not `setdefault`) — the base-env path causes schema errors.
 
-**50-frame chunked PIV (`_piv_chunked`):** `frames.normalize()` holds all frames
-as float32 (~32 MB/frame at 3836×2102). Full clips (~600 frames) would need ~20 GB.
-The helper processes 50 frames at a time; peak RAM stays ~1.6 GB.
+**50-frame chunked PIV (`_piv_chunked`):** Grayscale frames load as float32
+(~8 MB/frame at 3836×2102). Full clips (~600 frames) would need ~5 GB just for
+raw frames, more after projection. The helper processes 50 frames at a time;
+peak RAM stays ~1.6 GB.
 
 **RGB frame optimization:** Only two projected RGB frames are needed per clip
-(frame 0 for diagnostics, mid-frame for UTM background). These are projected
-individually via `da_rgb[i:i+1].frames.project()`.
+(frame 0 for diagnostics, mid-frame for UTM background). Each is loaded with
+`cv2.VideoCapture` and warped with `cv2.warpPerspective` individually.
 
 **CV noisiness mask:** Primary land/water discriminator. CV = speed_std / speed × 100%.
 Stationary land → very high CV; flowing water → bounded CV. Default 100%.
@@ -78,8 +79,9 @@ DSM elevation is a secondary/optional filter.
 axes (no `bbox_inches="tight"`) so the same geographic region falls at the same
 pixel in every output — enabling direct toggle comparison.
 
-**numpy < 2 constraint:** numba (used by pyORC) requires NumPy 1.x. Pinned in
-the conda environment and pyproject.toml.
+**NumPy 2.x:** No pin. pyORC (which required NumPy < 2) was removed in v0.2.
+OpenPIV is pure Python and supports NumPy 2.x natively. h5netcdf is used for
+NetCDF output instead of netcdf4 to avoid a compiled-extension ABI warning.
 
 ---
 

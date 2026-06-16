@@ -9,8 +9,7 @@ video. Three stages run automatically:
 2. **Georeference** — ties the video frame to real-world coordinates (SIFT
    feature matching against an orthophoto, or known physical dimensions for lab
    use)
-3. **PIV** — computes surface velocity via cross-correlation (pyORC /
-   pyOpenRiverCam backend, numba or OpenCV engine)
+3. **PIV** — computes surface velocity via cross-correlation (OpenPIV)
 
 Output: georeferenced velocity fields as GeoTIFF, NetCDF, GeoPackage, and a set
 of map figures — all in UTM coordinates.
@@ -110,7 +109,7 @@ Key parameters:
 |---|---|---|
 | `georeference_method` | `sift` | `sift` or `lab` |
 | `orthophoto` | `data/orthophoto.tif` | Required for `sift` method |
-| `piv.engine` | `numba` | `numba` (fast) or `opencv` |
+| `piv.engine` | `numba` | Ignored — retained for config compatibility; OpenPIV is always used |
 | `piv.window_size` | `10` | Interrogation window (px); 1 window ≈ 1 output cell |
 | `piv.h_a` | `0.0` | Water surface elevation (m); update per clip if known |
 | `piv.min_s2n` | `1.0` | Signal-to-noise threshold (OpenPIV peak2mean has low dynamic range; CV mask is the primary quality filter) |
