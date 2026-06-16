@@ -551,7 +551,7 @@ def _save_plots_utm(ds_mean, frame_utm_path, output_dir, land_mask=None):
 
 
 def _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
-                 window_size, fps, chunk_size=50):
+                 window_size, overlap, fps, chunk_size=50):
     """Run PIV in memory-safe chunks using OpenPIV and return a concatenated Dataset.
 
     Loads grayscale frames via cv2, removes background via temporal mean subtraction,
@@ -566,7 +566,7 @@ def _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
     import openpiv.pyprocess
 
     ws      = window_size if window_size is not None else 10
-    overlap = ws // 2
+    overlap = overlap    if overlap    is not None else ws // 2
 
     M, x_min, y_max, out_w, out_h, res = _compute_projection_params(camera_config)
 
@@ -659,7 +659,7 @@ def _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
 
 def run_piv(video_path, output_dir, camera_config_path=None,
             start_frame=1, end_frame=None, h_a=0.0, piv_engine="numba",
-            window_size=None,
+            window_size=None, overlap=None,
             min_s2n=1.0, min_corr=0.5, min_speed=0.02,
             cv_threshold=100.0,
             dsm_path=None, water_elev_m=None):
@@ -692,7 +692,7 @@ def run_piv(video_path, output_dir, camera_config_path=None,
         camera_config = _placeholder_camera_config(width, height)
 
     piv = _piv_chunked(video_path, camera_config, start_frame, end_frame, h_a,
-                       window_size=window_size, fps=fps, chunk_size=50)
+                       window_size=window_size, overlap=overlap, fps=fps, chunk_size=50)
 
     ds_mean = piv.mean(dim="time", keep_attrs=True)
 
@@ -808,6 +808,7 @@ def main():
     parser.add_argument("--piv-engine",     default="numba",
                         help="Ignored — retained for config/script compatibility; OpenPIV is always used")
     parser.add_argument("--window-size",    type=int, default=None, help="PIV interrogation window size in pixels (default: 10)")
+    parser.add_argument("--overlap",        type=int, default=None, help="PIV window overlap in pixels (default: window_size // 2)")
     parser.add_argument("--min-s2n",        type=float, default=1.0,  help="Min signal-to-noise for point filter (default: 1.0; OpenPIV peak2mean s2n has low dynamic range)")
     parser.add_argument("--min-corr",       type=float, default=0.5,  help="Min correlation for point filter (default: 0.5)")
     parser.add_argument("--min-speed",      type=float, default=0.02, help="Min speed (m/s) to include a vector (default: 0.02)")
@@ -827,6 +828,7 @@ def main():
         h_a=args.h_a,
         piv_engine=args.piv_engine,
         window_size=args.window_size,
+        overlap=args.overlap,
         min_s2n=args.min_s2n,
         min_corr=args.min_corr,
         min_speed=args.min_speed,

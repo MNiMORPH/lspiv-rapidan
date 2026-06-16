@@ -120,6 +120,7 @@ rule piv:
         h_a          = config["piv"]["h_a"],
         engine       = config["piv"]["engine"],
         window_size  = config["piv"].get("window_size") or "",
+        overlap      = config["piv"].get("overlap")      or "",
         min_s2n      = config["piv"]["min_s2n"],
         min_corr     = config["piv"]["min_corr"],
         min_speed    = config["piv"]["min_speed"],
@@ -137,6 +138,7 @@ rule piv:
             --h-a           {params.h_a} \
             --piv-engine    {params.engine} \
             $([ -n "{params.window_size}" ] && echo "--window-size {params.window_size}") \
+            $([ -n "{params.overlap}"      ] && echo "--overlap {params.overlap}") \
             --min-s2n       {params.min_s2n} \
             --min-corr      {params.min_corr} \
             --min-speed     {params.min_speed} \

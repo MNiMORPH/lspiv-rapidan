@@ -29,6 +29,7 @@ lab:
 piv:
   engine:      numba   # retained for backward compatibility; OpenPIV is always used
   window_size: 20      # PIV interrogation window size in pixels (1 px = 0.05 m)
+  # overlap:           # window overlap in pixels; default = window_size // 2 = 10
   start_frame: 1
   end_frame:           # leave blank to use all frames
   h_a:         0.0     # actual water surface level (m); update when known
