@@ -30,7 +30,9 @@ rule all:
         expand(f"{RESULTS}/{{sample}}/velocity_std_utm.png",              sample=SAMPLES),
         expand(f"{RESULTS}/{{sample}}/velocity_std_utm_all.png",          sample=SAMPLES),
         expand(f"{RESULTS}/{{sample}}/velocity_cv_utm.png",               sample=SAMPLES),
-        expand(f"{RESULTS}/{{sample}}/velocity_cv_utm_all.png",           sample=SAMPLES)
+        expand(f"{RESULTS}/{{sample}}/velocity_cv_utm_all.png",           sample=SAMPLES),
+        *(expand(f"{RESULTS}/{{sample}}/georeference_debug.png", sample=SAMPLES)
+          if GEO_METHOD == "sift" else [])
 
 
 rule stabilize:
@@ -51,9 +53,8 @@ def georeference_inputs(wildcards):
 rule georeference:
     input: unpack(georeference_inputs)
     output:
-        camera_config=CAM_DIR + "/{sample}.json"
-    params:
-        debug_image = RESULTS + "/{sample}/georeference_debug.png",
+        camera_config=CAM_DIR + "/{sample}.json",
+        debug_image  =RESULTS + "/{sample}/georeference_debug.png",
     run:
         if GEO_METHOD == "sift":
             geo  = config["georeference"]
@@ -66,7 +67,7 @@ rule georeference:
                 f"  --output           {{output.camera_config}}"
                 f"  {farg}"
                 f"  --max-ortho-pixels {geo['max_ortho_pixels']}"
-                f"  --debug-image      {{params.debug_image}}"
+                f"  --debug-image      {{output.debug_image}}"
             )
         elif GEO_METHOD == "lab":
             lab = config.get("lab", {})
@@ -79,6 +80,7 @@ rule georeference:
                 f"  --output {{output.camera_config}}"
                 f"  {warg} {harg} {carg}"
             )
+            shell("touch {output.debug_image}")
         else:
             raise ValueError(f"Unknown georeference_method: '{GEO_METHOD}'. Use 'sift' or 'lab'.")
 
