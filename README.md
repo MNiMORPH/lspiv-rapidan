@@ -22,14 +22,19 @@ but the pipeline is site-agnostic. See `examples/rapidan/` for a worked example.
 
 ## Installation
 
+The geo-stack (rasterio, geopandas, pyproj) and Snakemake are best installed
+via conda-forge to get pre-built binaries; everything else comes from pip.
+
 ```bash
-conda create -n lspiv-env python=3.11
+conda create -n lspiv-env -c conda-forge -c bioconda python=3.12 \
+    numpy scipy matplotlib geopandas rasterio pyproj shapely \
+    xarray h5py snakemake jupyter pytest
 conda activate lspiv-env
+pip install openpiv stabilo matplotlib-scalebar opencv-python h5netcdf
 pip install -e .
 ```
 
-Dependencies are declared in `pyproject.toml`. The conda environment pins
-`numpy<2` because the numba PIV engine requires NumPy 1.x.
+Dependencies are declared in `pyproject.toml`. NumPy 2.x is fully supported.
 
 ---
 
