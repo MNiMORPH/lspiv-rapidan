@@ -9,7 +9,7 @@ def make_lab_config(video_path, output_path,
                     width_m=None, height_m=None,
                     corners_px=None, crs=32615):
     """
-    Create a pyORC camera config for an overhead lab or test setup.
+    Create a camera config for an overhead lab or test setup.
 
     Without --width/--height, uses pixel/100 placeholder scaling — velocities
     will not be in real units, but the pipeline will run end-to-end for testing.
@@ -69,7 +69,7 @@ def make_lab_config(video_path, output_path,
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Create a pyORC camera config for an overhead lab setup. "
+            "Create a camera config for an overhead lab setup. "
             "Omit --width/--height for a placeholder test config."
         )
     )
@@ -88,7 +88,7 @@ def main():
                         ))
     parser.add_argument("--crs",     type=int, default=32615,
                         help="EPSG code (default: 32615). Ignored for local lab coordinates "
-                             "but required by pyORC.")
+                             "but required for the camera config JSON format.")
     args = parser.parse_args()
 
     corners_px = None

@@ -782,8 +782,8 @@ def main():
     parser.add_argument("--start-frame",    type=int, default=1)
     parser.add_argument("--end-frame",      type=int, default=None)
     parser.add_argument("--h-a",            type=float, default=0.0,  help="Actual water level (m)")
-    parser.add_argument("--piv-engine",     default="numba", choices=["numba", "opencv"],
-                        help="Ignored (retained for backward compatibility; OpenPIV is always used)")
+    parser.add_argument("--piv-engine",     default="numba",
+                        help="Ignored — retained for config/script compatibility; OpenPIV is always used")
     parser.add_argument("--window-size",    type=int, default=None, help="PIV interrogation window size in pixels (default: 10)")
     parser.add_argument("--min-s2n",        type=float, default=1.0,  help="Min signal-to-noise for point filter (default: 1.0; OpenPIV peak2mean s2n has low dynamic range)")
     parser.add_argument("--min-corr",       type=float, default=0.5,  help="Min correlation for point filter (default: 0.5)")
