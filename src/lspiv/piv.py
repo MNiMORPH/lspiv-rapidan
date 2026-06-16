@@ -746,6 +746,16 @@ def run_piv(video_path, output_dir, camera_config_path=None,
         dsm_mask_np = _dsm_water_mask(ds_mean, dsm_path, water_elev_m)
         land_mask_np = land_mask_np & dsm_mask_np
 
+    # Exclude PIV cells that fall in the warpPerspective black border.  Border
+    # pixels have zero value in all channels; real image content is always > 0
+    # in at least one channel.  Those zero-velocity cells pass the CV mask
+    # (0 std / 0 speed → indeterminate, treated as coherent) and appear as
+    # spurious blue dots in the corner regions of raster figures.
+    valid_proj = frame0_proj_bgr.max(axis=2) > 10          # (out_h, out_w)
+    xi_piv = np.round((ds_mean.xs.values - x_min) / res).astype(int).clip(0, out_w - 1)
+    yi_piv = np.round((y_max - ds_mean.ys.values) / res).astype(int).clip(0, out_h - 1)
+    land_mask_np = land_mask_np & valid_proj[yi_piv, xi_piv]
+
     # Quality filter mask for the filtered quiver figure and GeoPackage.
     # corr is NaN with OpenPIV; treat NaN corr as passing the threshold.
     speed_da = np.sqrt(ds_mean["v_x"]**2 + ds_mean["v_y"]**2)
