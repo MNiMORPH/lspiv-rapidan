@@ -6,6 +6,7 @@ CAM_DIR    = config["camera_config_dir"]
 RESULTS    = config["results_dir"]
 EXT        = config["video_extension"]
 ORTHOPHOTO = config.get("orthophoto", "")
+GCPS_DIR   = config.get("manual", {}).get("gcps_dir", "data/gcps")
 DSM        = config.get("piv", {}).get("dsm", "")
 
 GEO_METHOD = config.get("georeference_method", "sift")
@@ -32,7 +33,7 @@ rule all:
         expand(f"{RESULTS}/{{sample}}/velocity_cv_utm.png",               sample=SAMPLES),
         expand(f"{RESULTS}/{{sample}}/velocity_cv_utm_all.png",           sample=SAMPLES),
         *(expand(f"{RESULTS}/{{sample}}/georeference_debug.png", sample=SAMPLES)
-          if GEO_METHOD == "sift" else [])
+          if GEO_METHOD in ("sift", "manual") else [])
 
 
 rule stabilize:
@@ -48,6 +49,8 @@ def georeference_inputs(wildcards):
     inputs = {"video": f"{STAB_DIR}/{wildcards.sample}.mp4"}
     if GEO_METHOD == "sift":
         inputs["orthophoto"] = ORTHOPHOTO
+    elif GEO_METHOD == "manual":
+        inputs["gcps"] = f"{GCPS_DIR}/{wildcards.sample}.json"
     return inputs
 
 rule georeference:
@@ -81,8 +84,22 @@ rule georeference:
                 f"  {warg} {harg} {carg}"
             )
             shell("touch {output.debug_image}")
+        elif GEO_METHOD == "manual":
+            manual = config.get("manual", {})
+            crs    = manual.get("crs", 32615)
+            farg   = (f"--frame {manual['frame_number']}"
+                      if manual.get("frame_number") is not None else "")
+            shell(
+                f"lspiv-manual-georeference"
+                f"  --video       {{input.video}}"
+                f"  --gcps        {{input.gcps}}"
+                f"  --crs         {crs}"
+                f"  --output      {{output.camera_config}}"
+                f"  {farg}"
+                f"  --debug-image {{output.debug_image}}"
+            )
         else:
-            raise ValueError(f"Unknown georeference_method: '{GEO_METHOD}'. Use 'sift' or 'lab'.")
+            raise ValueError(f"Unknown georeference_method: '{GEO_METHOD}'. Use 'sift', 'lab', or 'manual'.")
 
 
 def piv_inputs(wildcards):

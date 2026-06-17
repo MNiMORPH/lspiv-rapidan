@@ -8,8 +8,9 @@ results_dir:       results             # figures and velocity data (not tracked 
 video_extension: MP4   # file extension for raw videos; case-sensitive on Linux
 
 # ── Georeferencing ────────────────────────────────────────────────────────────
-# Method: sift  — automatic matching against a reference orthophoto
-#         lab   — known physical dimensions, no orthophoto needed
+# Method: sift   — automatic matching against a reference orthophoto
+#         lab    — known physical dimensions, no orthophoto needed
+#         manual — user-supplied GCP JSON (e.g. from QGIS); see manual: block below
 georeference_method: sift
 
 # Settings for georeference_method: sift
@@ -20,6 +21,16 @@ orthophoto: data/orthophoto.tif
 georeference:
   # frame_number: null      # override to use a specific frame; default = middle of clip
   max_ortho_pixels: 4000000 # downsample orthophoto to ~this many pixels for SIFT matching
+
+# Settings for georeference_method: manual
+# Place one JSON file per clip in gcps_dir, named {clip}.json.
+# Format: {"src": [[col, row], ...], "dst": [[easting, northing], ...]}
+# At least 4 GCP pairs required; more → RANSAC fit.
+# Use QGIS Georeferencer or any GIS tool to identify pixel ↔ UTM correspondences.
+manual:
+  crs:      32615    # EPSG code for the UTM zone
+  gcps_dir: data/gcps
+  # frame_number: null  # frame to use for debug image; default = middle of clip
 
 # Settings for georeference_method: lab
 # Use when the physical width/height of the field of view is known and no

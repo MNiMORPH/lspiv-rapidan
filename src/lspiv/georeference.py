@@ -163,6 +163,76 @@ def save_debug_image(frame_bgr, frame_pts, path):
     print(f"Debug image saved to {path}")
 
 
+def georeference_manual(video_path, gcps_path, output_path,
+                        crs, h_ref=0.0, z_0=0.0,
+                        frame_number=None,
+                        debug_image_path=None):
+    """Write a camera config from manually identified ground control points.
+
+    gcps_path: JSON with {"src": [[col, row], ...], "dst": [[utm_x, utm_y], ...]}
+    Requires at least 4 GCP pairs.  For exactly 4 points an exact homography is
+    fitted; for more, RANSAC is used and the inlier count is reported.
+    The 4 frame corners are then projected through the homography to produce the
+    camera_config.json, matching the same format as SIFT georeferencing.
+    """
+    with open(gcps_path) as f:
+        gcps_data = json.load(f)
+
+    src = np.float32(gcps_data["src"])   # pixel (col, row)
+    dst = np.float32(gcps_data["dst"])   # world (easting, northing)
+
+    if len(src) != len(dst):
+        raise ValueError(f"src and dst lengths differ ({len(src)} vs {len(dst)})")
+    if len(src) < 4:
+        raise ValueError(f"Need at least 4 GCPs; got {len(src)}")
+
+    if frame_number is None:
+        frame_number = get_nframes(video_path) // 2
+
+    frame = extract_frame(video_path, frame_number)
+    h, w = frame.shape[:2]
+
+    if len(src) == 4:
+        H, _ = cv2.findHomography(src, dst)
+        if H is None:
+            raise RuntimeError("Homography estimation failed (are the GCPs collinear?)")
+        print(f"Homography from 4 manual GCPs (exact fit)")
+    else:
+        H, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
+        if H is None:
+            raise RuntimeError("Homography estimation failed.")
+        n_inliers = int(mask.sum())
+        print(f"Homography from {len(src)} manual GCPs: {n_inliers} RANSAC inliers")
+
+    frame_corners = np.array(
+        [[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32
+    )
+    world_corners = cv2.perspectiveTransform(
+        frame_corners.reshape(-1, 1, 2), H
+    ).reshape(-1, 2)
+
+    if debug_image_path:
+        save_debug_image(frame, src, debug_image_path)
+
+    config = {
+        "height": h,
+        "width":  w,
+        "gcps": {
+            "src":   frame_corners.tolist(),
+            "dst":   world_corners.tolist(),
+            "h_ref": h_ref,
+            "z_0":   z_0,
+        },
+        "crs": crs,
+    }
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+    print(f"Camera config written to {output_path}  ({len(src)} GCPs, CRS: EPSG:{crs})")
+
+
 def georeference(video_path, orthophoto_path, output_path,
                  frame_number=None,
                  h_ref=0.0, z_0=0.0,
@@ -254,6 +324,45 @@ def main():
         h_ref=args.h_ref,
         z_0=args.z_0,
         max_ortho_pixels=args.max_ortho_pixels,
+        debug_image_path=args.debug_image,
+    )
+
+
+def main_manual():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Write a camera config from manually identified ground control points. "
+            "GCPs can be identified in QGIS, a GIS tool, or by hand from known "
+            "landmarks. The GCP file must be JSON with "
+            '{"src": [[col, row], ...], "dst": [[easting, northing], ...]}.'
+        )
+    )
+    parser.add_argument("--video",        required=True,
+                        help="Stabilized video path (used to read frame dimensions)")
+    parser.add_argument("--gcps",         required=True,
+                        help='JSON file with {"src": [[col,row],...], "dst": [[x,y],...]}')
+    parser.add_argument("--crs",          type=int, required=True,
+                        help="EPSG code for the UTM coordinate system (e.g. 32615)")
+    parser.add_argument("--output",       required=True,
+                        help="Output camera_config.json path")
+    parser.add_argument("--frame",        type=int, default=None,
+                        help="Frame index for debug image (default: middle frame)")
+    parser.add_argument("--h-ref",        type=float, default=0.0,
+                        help="Reference water surface elevation (m)")
+    parser.add_argument("--z-0",          type=float, default=0.0,
+                        help="Bed elevation (m)")
+    parser.add_argument("--debug-image",  default=None,
+                        help="Optional path to save GCP location overlay for QC")
+    args = parser.parse_args()
+
+    georeference_manual(
+        video_path=args.video,
+        gcps_path=args.gcps,
+        output_path=args.output,
+        crs=args.crs,
+        h_ref=args.h_ref,
+        z_0=args.z_0,
+        frame_number=args.frame,
         debug_image_path=args.debug_image,
     )
 
